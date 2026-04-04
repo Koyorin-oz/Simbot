@@ -20,6 +20,8 @@ const { handlePrefixSnipeEdit } = require("../../utils/prefixSnipeEditHandler");
 
 const AUTO_REPLY_COOLDOWN_MS = 15_000;
 const GEMINI_REPLY_MAX = 2000;
+/** Évite deux appels IA sur le même message.id (re-entrée avant le 1er await). Ne protège pas deux processus / même token. */
+const IA_PING_MESSAGE_TTL_MS = 5 * 60_000;
 
 function truncateGeminiOut(s) {
   const t = String(s || "").trim();
@@ -61,47 +63,55 @@ module.exports = {
 
     const botId = client.user?.id;
     if (botId && message.mentions.users.has(botId)) {
-      const member =
-        message.member || (await message.guild.members.fetch(message.author.id).catch(() => null));
+      if (!client._iaPingInFlight) client._iaPingInFlight = new Set();
+      if (client._iaPingInFlight.has(message.id)) {
+        /* déjà pris en charge par un autre tour du handler */
+      } else {
+        client._iaPingInFlight.add(message.id);
+        setTimeout(() => client._iaPingInFlight.delete(message.id), IA_PING_MESSAGE_TTL_MS).unref?.();
 
-      if (member) {
-        const channelIdForIa = getGeminiAccessChannelId({
-          channel: message.channel,
-          channelId: message.channelId
-        });
-        if (!canUseIaPing(member, channelIdForIa)) {
-          /* Refus silencieux : pas de message « va dans tel salon » */
-        } else if (isIaPaused()) {
-          await replyOnce(
-            "ia_paused",
-            "L’IA est **en pause** (`/pause-ia reprendre` ou `/pause-ia restart`). Réessaie quand elle sera réactivée."
-          );
-        } else if (!String(process.env.GROQ_API_KEY || process.env.GROK_API_KEY || "").trim()) {
-          await message.reply({ content: "Groq n’est pas configuré (`GROQ_API_KEY` dans `.env`)." }).catch(() => null);
-          replied = true;
-        } else {
-          const noCd = skipIaPingCooldown(member, channelIdForIa);
-          if (!noCd && isGeminiOnCooldown(client, message.guild.id, message.author.id)) {
-            const s = geminiCooldownSecondsLeft(client, message.guild.id, message.author.id);
-            await message.reply({ content: `Patiente encore **${s}s** avant de re-ping l’IA.` }).catch(() => null);
+        const member =
+          message.member || (await message.guild.members.fetch(message.author.id).catch(() => null));
+
+        if (member) {
+          const channelIdForIa = getGeminiAccessChannelId({
+            channel: message.channel,
+            channelId: message.channelId
+          });
+          if (!canUseIaPing(member, channelIdForIa)) {
+            /* Refus silencieux : pas de message « va dans tel salon » */
+          } else if (isIaPaused()) {
+            await replyOnce(
+              "ia_paused",
+              "L’IA est **en pause** (`/pause-ia reprendre` ou `/pause-ia restart`). Réessaie quand elle sera réactivée."
+            );
+          } else if (!String(process.env.GROQ_API_KEY || process.env.GROK_API_KEY || "").trim()) {
+            await message.reply({ content: "Groq n’est pas configuré (`GROQ_API_KEY` dans `.env`)." }).catch(() => null);
             replied = true;
           } else {
-            const stripped = stripBotMentions(message.content, botId);
-            await message.channel.sendTyping().catch(() => null);
-            try {
-              const out = await generateGeminiPingReply(stripped, message.guild);
-              if (!noCd) setGeminiCooldown(client, message.guild.id, message.author.id);
+            const noCd = skipIaPingCooldown(member, channelIdForIa);
+            if (!noCd && isGeminiOnCooldown(client, message.guild.id, message.author.id)) {
+              const s = geminiCooldownSecondsLeft(client, message.guild.id, message.author.id);
+              await message.reply({ content: `Patiente encore **${s}s** avant de re-ping l’IA.` }).catch(() => null);
               replied = true;
-              await message
-                .reply({ content: truncateGeminiOut(out), allowedMentions: { parse: [] } })
-                .catch(() => null);
-            } catch (e) {
-              logApiError("GROQ_PING", e, { maxDetailChars: 800 });
-              replied = true;
-              const hint =
-                formatGeminiErrorForUser(e) ||
-                "L’IA ne répond pas (réseau, filtre ou erreur API). Réessaie plus tard.";
-              await message.reply({ content: hint }).catch(() => null);
+            } else {
+              const stripped = stripBotMentions(message.content, botId);
+              await message.channel.sendTyping().catch(() => null);
+              try {
+                const out = await generateGeminiPingReply(stripped, message.guild);
+                if (!noCd) setGeminiCooldown(client, message.guild.id, message.author.id);
+                replied = true;
+                await message
+                  .reply({ content: truncateGeminiOut(out), allowedMentions: { parse: [] } })
+                  .catch(() => null);
+              } catch (e) {
+                logApiError("GROQ_PING", e, { maxDetailChars: 800 });
+                replied = true;
+                const hint =
+                  formatGeminiErrorForUser(e) ||
+                  "L’IA ne répond pas (réseau, filtre ou erreur API). Réessaie plus tard.";
+                await message.reply({ content: hint }).catch(() => null);
+              }
             }
           }
         }
