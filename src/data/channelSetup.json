@@ -1,0 +1,18 @@
+{
+  "1354742163010752522": {
+    "welcomeChannelId": "1486768348804157751",
+    "rulesChannelId": "1486768353229148200",
+    "reglementChannelId": "1486768357351882863",
+    "botCategoryId": "1486768359990235146",
+    "modLogChannelId": "1486768361127022652",
+    "ticketPanelChannelId": "1486768364197122120",
+    "commandsChannelId": "1486768369062641674",
+    "suggestionsChannelId": "1486768372099190955",
+    "ticketCategoryId": "1486768374678556833",
+    "voiceCategoryId": "1486768383432331465",
+    "lobbyChannelId": "1486768385231552542",
+    "panelTextChannelId": "1486768387102216314",
+    "verifyTestCategoryId": "1486768390684020767",
+    "verifyMainCategoryId": "1486768392072597738"
+  }
+}

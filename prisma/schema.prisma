@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              Int      @id @default(autoincrement())
+  userId          String   @unique
+  guildId         String
+  simbaCoins      Int      @default(0)
+  simbaPoints     Int      @default(0)
+  levelPoints     Int      @default(0)
+  level           Int      @default(1)
+  rankKey         String   @default("hyene_1")
+  crownOwned      Boolean  @default(false)
+  piggyOwned      Boolean  @default(false)
+  coffeeUntil     DateTime?
+  coffeeBoostPct  Int      @default(0)
+  customRoleUnlocked Boolean @default(false)
+  customRoleId     String?
+  /** Derniere activite comptee (message / vocal) pour la decroissance SP. */
+  lastActivityAt   DateTime @default(now())
+  /** Derniere application de perte SP inactivite (un tick max par fenetre). */
+  lastSpDecayAt    DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+}
+
+model RewardClaim {
+  id         Int      @id @default(autoincrement())
+  userId     String
+  guildId    String
+  dailyAt    DateTime?
+  weeklyAt   DateTime?
+  monthlyAt  DateTime?
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, guildId])
+}
+
+model Punishment {
+  id          Int      @id @default(autoincrement())
+  guildId     String
+  userId      String
+  moderatorId String
+  type        String
+  reason      String
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime?
+
+}
+
+model Birthday {
+  id        Int      @id @default(autoincrement())
+  guildId   String
+  userId    String
+  day       Int
+  month     Int
+  year      Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([guildId, userId])
+}
+
+model PrivateRoomPrefs {
+  id           Int      @id @default(autoincrement())
+  guildId      String
+  userId       String
+  defaultName  String   @default("Salon vocal")
+  defaultLimit Int      @default(99)
+  defaultMode  String   @default("open")
+  blacklistIds String   @default("[]")
+  whitelistIds String   @default("[]")
+  updatedAt    DateTime @updatedAt
+
+  @@unique([guildId, userId])
+}
+
+model Ticket {
+  id        Int       @id @default(autoincrement())
+  guildId   String
+  channelId String    @unique
+  ownerId   String
+  /** "general" = tickets habituels ; "welcome" = processus d'accueil / verification. */
+  kind      String    @default("general")
+  status    String    @default("open")
+  createdAt DateTime  @default(now())
+  closedAt  DateTime?
+
+  @@index([guildId, ownerId, status, kind])
+}
+
+/** Suggestion postee via /suggestion (message Discord Components V2). */
+model Suggestion {
+  id        Int      @id @default(autoincrement())
+  guildId   String
+  channelId String
+  messageId String?  @unique
+  authorId  String
+  title     String
+  body      String
+  imageUrl  String?
+  createdAt DateTime @default(now())
+  votes     SuggestionVote[]
+}
+
+/** Un vote par membre et par suggestion (1 = pour, -1 = contre). */
+model SuggestionVote {
+  id           Int        @id @default(autoincrement())
+  suggestionId Int
+  userId       String
+  value        Int
+  suggestion   Suggestion @relation(fields: [suggestionId], references: [id], onDelete: Cascade)
+
+  @@unique([suggestionId, userId])
+}

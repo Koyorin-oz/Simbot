@@ -1,0 +1,235 @@
+/**
+ * - `node scripts/merge-user-dark-jokes.cjs --write-user-only` → remplace darkJokes.json par **uniquement** les blagues des captures (hard).
+ * - Sans flag : fusionne ces blagues dans le catalogue existant (évite doublons exacts).
+ */
+const fs = require("node:fs");
+const path = require("node:path");
+
+const root = path.join(__dirname, "..");
+const target = path.join(root, "src", "data", "darkJokes.json");
+
+const extra = [
+  { setup: "Comment est-ce qu'on appelle un boomerang qui ne revient pas ?", punchline: "Un chat disparu.", category: "Noir" },
+  { setup: "Que dit un aveugle lorsqu'on lui donne du papier de verre ?", punchline: "« C'est écrit tout petit ».", category: "Noir" },
+  { setup: "Pourquoi la petite fille tombe-t-elle de la balançoire ?", punchline: "Parce qu'elle n'a pas de bras.", category: "Noir" },
+  { setup: "Qu'est-ce qui est pire qu'un bébé dans une poubelle ?", punchline: "Un bébé dans deux poubelles.", category: "Noir" },
+  { setup: "Grâce à quoi peut-on enlever le chewing-gum dans les cheveux ?", punchline: "Le cancer.", category: "Noir" },
+  {
+    setup: "Qu'est-ce qui est mieux que gagner une médaille d'or aux Jeux Paralympiques ?",
+    punchline: "Marcher.",
+    category: "Noir"
+  },
+  { setup: "Quelle partie du légume ne passe pas dans le mixeur ?", punchline: "La chaise roulante.", category: "Noir" },
+  { setup: "Comment reconnaît-on une lettre envoyée par un lépreux ?", punchline: "La langue est collée au timbre.", category: "Noir" },
+  {
+    setup: "Que faire quand on trouve un épileptique en crise dans une baignoire ?",
+    punchline: "Ajouter de la lessive et y jeter son linge sale.",
+    category: "Noir"
+  },
+  {
+    setup: "Pourquoi les myopathes ne conduisent-ils jamais de voiture ?",
+    punchline: "Parce qu'ils n'atteignent jamais l'âge du permis.",
+    category: "Noir"
+  },
+  {
+    setup: "Qu'est-ce qui a 5 bras, 3 jambes et 2 pieds ?",
+    punchline: "La ligne d'arrivée du marathon de Boston.",
+    category: "Noir"
+  },
+  {
+    setup: "— Maman, maman, je ne veux plus dormir avec mon petit frère.\n— Tais-toi ! Je t'ai déjà dit qu'on n'avait pas assez d'argent pour l'enterrer.",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup: "Pourquoi un enfant chinois ne croit jamais au Père Noël ?",
+    punchline: "Car c'est lui qui a fabriqué les jouets.",
+    category: "Noir"
+  },
+  {
+    setup: "— Maman, maman, papa s'est pendu dans le jardin !\n— Poisson d'avril ! Il s'est pendu dans le grenier !",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup: "Quelle est la pire combinaison de maladies ?",
+    punchline: "Alzheimer et la diarrhée. Vous courez, mais vous ne savez plus où.",
+    category: "Noir"
+  },
+  {
+    setup: "Comment les enfants de Tchernobyl comptent-ils jusqu'à 33 ?",
+    punchline: "Sur leurs doigts.",
+    category: "Noir"
+  },
+  {
+    setup:
+      "Un enfant juif dans un camp de concentration joue avec de la poussière. Un garde s'approche et dit :\n— Eh bien alors ? On joue avec Papa et Maman ?",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup:
+      "Deux amies de jeunesse se retrouvent à la quarantaine passée. L'une demande à l'autre :\n— Tu as des enfants ?\n— J'en ai eu un, répond-elle, la larme à l'œil. Puis un jour, il est parti !",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup:
+      "— Ah ? Oui, je comprends. Il te manque beaucoup, alors ?\n— Quand je pense à lui, souvent je pleure.\n— Et que fais-tu, dans ce cas, pour te consoler ?\n— Ben, je regarde la vidéo de mon avortement !",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup:
+      "Un père à son fils :\n— Fiston, tu sais ce qu'a dit ta sœur quand elle a perdu sa virginité ?\n— Oh non papa…\n— Exactement !",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup:
+      "Maman, pourquoi tu reprends ma température dans ma bouche ? Tu l'as déjà prise dans mon derrière, il y a 10 minutes !\n— Je sais mon chéri, mais cette fois c'est juste pour nettoyer le thermomètre !",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup: "Quels sont les gâteaux préférés de Brigitte Macron ?",
+    punchline: "Les petits écoliers.",
+    category: "Noir"
+  },
+  {
+    setup:
+      "Ma femme a rigolé quand je lui ai dit que j'avais encore le corps d'un jeune de 18 ans. Elle a beaucoup moins ri quand elle l'a vu en morceaux dans le congélateur.",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup:
+      "Un homme est à l'hôpital et dit à son infirmière :\n— Vous êtes mon infirmière préférée, pourriez-vous venir me voir quand je serai sorti de cet hôpital ?\n— Désolée, j'adorerais venir vous voir, mais j'ai horreur des cimetières.",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup:
+      "Le juge demande : « Vous n'avez rien ressenti lorsque vous avez coupé votre femme en morceaux avant de la faire cuire ? »\n— Si, à un moment j'ai même pleuré.\n— Ah quand même ! Quand ça ?\n— Quand j'ai coupé les oignons.",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup:
+      "Des enfants sonnent chez une dame. La dame leur répond :\n— Qu'y a-t-il ?\n— On aimerait savoir si votre fils Titouan peut jouer avec nous ?\n— Mais vous savez que Titouan n'a ni bras ni jambe ?\n— Oui mais on a besoin d'un ballon.",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup:
+      "Dans une classe, une professeure demande à ses élèves :\n— Qui peut me dire quels sont les meilleurs matériaux combustibles ?\nUn élève juif, ayant la réponse, lève la main en espérant être interrogé :\n— Je sais ! Je sais ! Moi Madame ! Moi !\n— Excellente réponse, quoi d'autre ?",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup:
+      "Un prêtre entre dans un McDonald's :\n— Bonjour, je voudrais un menu enfant s'il vous plaît.\nLe serveur :\n— Frites et coca ?\nLe prêtre :\n— Non juste l'enfant, merci.",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup: "Quel est le point commun entre un nécrophile et un homme qui se baigne en Bretagne ?",
+    punchline: "Tous les deux disent : « Elle est froide mais une fois dedans, elle est bonne. »",
+    category: "Noir"
+  },
+  {
+    setup:
+      "Un gars raconte à son ami :\n— Tiens, après dix ans, mon ex vient de refaire surface.\n— Ah ? Vous vous êtes parlés ?\n— Ben non. C'est juste que la corde qui reliait ses chevilles au bloc de béton a lâché.",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup: "Quel est le point commun entre un juif et des chaussures ?",
+    punchline: "Il y en a plus en 39 qu'en 45.",
+    category: "Noir"
+  },
+  {
+    setup:
+      "Un juif est dans un ascenseur. Soudain, l'homme à côté de lui lâche un gros pet. Le juif le regarde l'air choqué. L'homme lui dit alors :\n— Oh, ça va ! C'est du gaz, ça n'a jamais tué personne !",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup:
+      "C'est une femme qui rentre chez elle totalement paniquée :\n— Chéri ! Le chauffeur a essayé de me rouler dessus ! Il a voulu m'éliminer ! Il faut absolument le renvoyer !\n— Mais voyons ! Laisse-lui au moins une seconde chance !",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup:
+      "Un médecin légiste examine le cadavre d'une jeune femme qui vient d'être assassinée. Le policier chargé de l'enquête lui demande :\n— Elle a été abusée ?\n— Pas encore, j'attendais votre autorisation.",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup: "Pourquoi les écolos aiment bien les lépreux ?",
+    punchline: "Parce qu'ils sont biodégradables.",
+    category: "Noir"
+  },
+  {
+    setup:
+      "Un gamin, perpétuellement inquiet, demande à ses parents :\n— Est-ce que j'ai été adopté ?\n— Pas encore. Nous n'avons mis l'annonce qu'hier.",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup: "Dans quel endroit un enfant de huit ans est-il capable de faire 3 000 pompes en 16 heures ?",
+    punchline: "Dans une fabrique de chaussures en Chine.",
+    category: "Noir"
+  },
+  {
+    setup: "Comment appelle-t-on un chien sans pattes ?",
+    punchline: "On ne l'appelle pas, on va le chercher.",
+    category: "Noir"
+  },
+  {
+    setup:
+      "Deux hommes discutent dans un café :\n— J'ai lu dans le journal qu'un homme a tué sa femme le lendemain de sa nuit de noces.\nL'autre répond alors :\n— Parfois la nuit porte conseil.",
+    punchline: "",
+    category: "Noir"
+  },
+  {
+    setup: "Qu'est-ce qui est blanc et qui tombe pendant les hivers rigoureux ?",
+    punchline: "Les petits vieux.",
+    category: "Noir"
+  },
+  {
+    setup: "Autopsie : elle permet aux autres de découvrir ce qu'on n'a jamais pu voir en soi-même.",
+    punchline: "",
+    category: "Noir"
+  }
+];
+
+function key(j) {
+  return `${String(j.setup || "").trim()}\n${String(j.punchline || "").trim()}`;
+}
+
+function runMergeIntoExisting() {
+  const existing = JSON.parse(fs.readFileSync(target, "utf8"));
+  const seen = new Set(existing.map(key));
+  let added = 0;
+  for (const j of extra) {
+    const k = key(j);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    existing.push(j);
+    added += 1;
+  }
+  fs.writeFileSync(target, JSON.stringify(existing, null, 2), "utf8");
+  console.log("Merged:", added, "new jokes; total:", existing.length);
+}
+
+if (require.main === module) {
+  if (process.argv.includes("--write-user-only")) {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, JSON.stringify(extra, null, 2), "utf8");
+    console.log("darkJokes.json = blagues captures uniquement:", extra.length);
+    process.exit(0);
+  }
+  runMergeIntoExisting();
+}
