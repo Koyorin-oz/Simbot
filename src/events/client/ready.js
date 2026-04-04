@@ -80,6 +80,9 @@ module.exports = {
   once: true,
   async execute(client) {
     console.log(`[READY] Connecte en tant que ${client.user.tag}`);
+    console.log(
+      `[READY] Instance PID=${process.pid} — si l'IA répond en double : un seul processus doit utiliser ce token (arrêter npm local si Pebble tourne).`
+    );
     for (const guild of client.guilds.cache.values()) {
       await syncWelcomeVerifyCategoryAccess(guild).catch(() => null);
       await updateMemberCounterChannel(guild).catch(() => null);

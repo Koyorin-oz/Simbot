@@ -12,7 +12,8 @@ const {
   stripBotMentions,
   canUseIaPing,
   skipIaPingCooldown,
-  getGeminiAccessChannelId
+  getGeminiAccessChannelId,
+  claimIaPingDedupSlot
 } = require("../../services/geminiAccessService");
 const { generateGeminiPingReply, formatGeminiErrorForUser } = require("../../services/geminiService");
 const { logApiError } = require("../../utils/botLogger");
@@ -70,6 +71,15 @@ module.exports = {
         client._iaPingInFlight.add(message.id);
         setTimeout(() => client._iaPingInFlight.delete(message.id), IA_PING_MESSAGE_TTL_MS).unref?.();
 
+        let iaDedupOk = true;
+        try {
+          iaDedupOk = await claimIaPingDedupSlot(client.prisma, message.id, message.guild.id);
+        } catch (e) {
+          logApiError("IA_PING_DEDUP", e, { maxDetailChars: 300 });
+        }
+        if (!iaDedupOk) {
+          /* Même message déjà pris par une autre instance (même SQLite) ou course DB */
+        } else {
         const member =
           message.member || (await message.guild.members.fetch(message.author.id).catch(() => null));
 
@@ -114,6 +124,7 @@ module.exports = {
               }
             }
           }
+        }
         }
       }
     }

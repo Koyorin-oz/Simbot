@@ -120,3 +120,12 @@ model SuggestionVote {
 
   @@unique([suggestionId, userId])
 }
+
+/** Une ligne par message Discord : empêche deux instances (même DB) de répondre deux fois au ping @bot. */
+model IaPingDedup {
+  messageId String   @id
+  guildId   String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

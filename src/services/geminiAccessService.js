@@ -98,6 +98,29 @@ function stripBotMentions(content, botId) {
     .trim();
 }
 
+let lastIaDedupPruneAt = 0;
+
+/**
+ * Réserve ce message pour un seul traitement ping IA (plusieurs processus partageant la même DB).
+ * @returns {Promise<boolean>} true si ce processus doit répondre, false si une autre instance a déjà la réservation.
+ */
+async function claimIaPingDedupSlot(prisma, messageId, guildId) {
+  const now = Date.now();
+  if (now - lastIaDedupPruneAt > 3_600_000) {
+    lastIaDedupPruneAt = now;
+    await prisma.iaPingDedup
+      .deleteMany({ where: { createdAt: { lt: new Date(now - 24 * 60 * 60 * 1000) } } })
+      .catch(() => null);
+  }
+  try {
+    await prisma.iaPingDedup.create({ data: { messageId: String(messageId), guildId: String(guildId) } });
+    return true;
+  } catch (e) {
+    if (e?.code === "P2002") return false;
+    throw e;
+  }
+}
+
 module.exports = {
   DEDICATED_CHANNEL_ID,
   STAFF_IA_CHANNEL_ID,
@@ -109,5 +132,6 @@ module.exports = {
   setGeminiCooldown,
   geminiCooldownSecondsLeft,
   getGeminiCooldownMs,
-  stripBotMentions
+  stripBotMentions,
+  claimIaPingDedupSlot
 };
