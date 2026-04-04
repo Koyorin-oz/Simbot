@@ -1,0 +1,45 @@
+---
+description: PRIORITÉ 1 — Après modifs bot : commit + push ; et npm run deploy:commands quand les slash changent (même exigence que le push)
+alwaysApply: true
+---
+
+# Déploiement automatique CARMINABOT (priorité absolue)
+
+Dès que tu **modifies le code du bot** dans ce dépôt, tu **dois** enchaîner les étapes ci-dessous **sans attendre** que l’utilisateur le demande. **`git push` et `npm run deploy:commands` (quand requis) ont la même importance** : la tâche n’est pas finie si l’un des deux manque alors qu’il était nécessaire.
+
+## 1. Toujours : Git
+
+1. `git status`
+2. `git add` sur les fichiers modifiés (**jamais** `.env` ni secrets)
+3. `git commit -m "message court et clair"`
+4. `git push` vers `origin` (souvent `main`)
+
+Si **push** ou **commit** échoue : l’**expliquer** clairement à l’utilisateur.
+
+## 2. Quand c’est nécessaire : `npm run deploy:commands`
+
+Exécuter **`npm run deploy:commands`** à la racine du projet (`.env` avec `DISCORD_TOKEN` / `CLIENT_ID` sur la machine où la commande tourne), **dans la même session**, **après** les fichiers sauvegardés et **idéalement après** `git commit` et **avant** `git push` (ou juste après le push si l’ordre a été inversé — mais **ne pas oublier**).
+
+### Tu **dois** lancer `deploy:commands` si la modif inclut notamment :
+
+- **Nouveau** ou **supprimé** fichier sous `src/commands/`
+- **Renommage** de commande, options, sous-commandes, choix, autocomplétion
+- Changement de **`SlashCommandBuilder`** / **`data:`** / **`.setName`** / **`.setDescription`** / **`.add*Option`** / **`.addSubcommand`**, etc.
+- Changement de **`src/deploy-commands.js`** ou de la façon dont les commandes sont enregistrées
+- Toute zone d’un fichier `src/commands/**/*.js` **en dehors** du pur corps de `execute` (imports + définition de la commande + `module.exports`)
+
+### Tu **ne dois pas** lancer `deploy:commands` si :
+
+- Seul le **corps** de **`async execute(...)`** change (logique, textes de réponse, embeds), **sans** toucher à la définition slash au-dessus.
+
+### En cas de doute
+
+Si tu as édité un fichier sous `src/commands/` et que tu n’es pas sûr : **lance `npm run deploy:commands`** (mieux un deploy de trop que Discord désynchronisé). Si la commande **échoue** (réseau, token) : **le dire** à l’utilisateur.
+
+## 3. PebbleHost
+
+Après `git push`, **rappeler** un **restart** Pebble si besoin pour tirer le dernier code.
+
+---
+
+**Ne pas** marquer la tâche terminée sans **commit + push** ; et sans **`npm run deploy:commands`** lorsque les critères ci-dessus s’appliquent.
