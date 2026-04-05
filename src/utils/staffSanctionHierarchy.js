@@ -1,10 +1,15 @@
 /**
  * Hiérarchie staff La Carminauté : un modérateur ne peut pas sanctionner
- * quelqu'un qui a un rôle staff **strictement plus haut** (ou égal).
+ * quelqu'un qui a un rôle staff **strictement plus haut** (ou égal) dans la liste.
+ *
+ * Les **rôles de rang Simba** (Hyène, Pumba, etc.) ne sont pas dans cette liste : un modérateur
+ * staff (Rafiki, Hugo, …) ou un compte **Administrateur Discord** peut les sanctionner sans se
+ * faire bloquer par la position des rôles dans la liste Discord.
  *
  * Ordre : index 0 = plus haut pouvoir. Un index plus petit peut sanctionner un index plus grand.
- * Surcharge possible : STAFF_SANCTION_HIERARCHY_IDS=id1,id2,... (du plus haut au plus bas).
+ * Surcharge : STAFF_SANCTION_HIERARCHY_IDS=id1,id2,... (du plus haut au plus bas).
  */
+const { PermissionFlagsBits } = require("discord.js");
 const { getCommandOwnerBypassUserId } = require("../services/staffCommandPermissionsService");
 
 /** Du plus puissant au moins puissant (IDs Discord). */
@@ -17,6 +22,9 @@ const DEFAULT_HIERARCHY_TOP_TO_BOTTOM = [
   "736488084929118298" // Rafiki — modérateur
 ];
 
+/** Palier le plus haut qu’un admin Discord *sans* rôle dans la liste peut encore sanctionner (défaut = Scar). */
+const DEFAULT_SCAR_TIER_ROLE_ID = "739948639300092055";
+
 function getHierarchyRoleIds() {
   const raw = String(process.env.STAFF_SANCTION_HIERARCHY_IDS || "").trim();
   if (raw) {
@@ -26,6 +34,30 @@ function getHierarchyRoleIds() {
       .filter(Boolean);
   }
   return [...DEFAULT_HIERARCHY_TOP_TO_BOTTOM];
+}
+
+/**
+ * Index minimum de la cible (staff list) pour un modérateur qui a Administrateur Discord
+ * mais aucun rôle dans la liste — évite de toucher Mufasa/Hugo/CRS par erreur.
+ * Surcharge : STAFF_SANCTION_GENERIC_ADMIN_MIN_INDEX=3 (index du rôle Scar dans ta liste custom).
+ */
+function getGenericAdminMinTargetStaffIndex() {
+  const ids = getHierarchyRoleIds();
+  const envMin = String(process.env.STAFF_SANCTION_GENERIC_ADMIN_MIN_INDEX || "").trim();
+  if (envMin !== "" && /^\d+$/.test(envMin)) {
+    const n = parseInt(envMin, 10);
+    if (n >= 0 && n <= ids.length) return n;
+  }
+  const scarIdx = ids.indexOf(DEFAULT_SCAR_TIER_ROLE_ID);
+  return scarIdx >= 0 ? scarIdx : ids.length;
+}
+
+function hasDiscordAdministrator(member) {
+  try {
+    return Boolean(member?.permissions?.has(PermissionFlagsBits.Administrator));
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -71,14 +103,23 @@ function assertCanSanctionMember(moderator, targetMember, guild, actorUserId) {
   const tgtIdx = getStaffHierarchyIndex(targetMember);
 
   if (tgtIdx !== null) {
-    if (modIdx === null) {
-      return "Tu ne peux pas sanctionner un membre du staff : ton rôle n'est pas dans la hiérarchie staff reconnue par le bot.";
+    if (modIdx !== null) {
+      if (modIdx >= tgtIdx) {
+        return "Tu ne peux pas sanctionner un membre du staff de **rang égal ou supérieur** au tien (hiérarchie Rafiki → … → Mufasa).";
+      }
+      return null;
     }
-    if (modIdx >= tgtIdx) {
-      return "Tu ne peux pas sanctionner un membre du staff de **rang égal ou supérieur** au tien (hiérarchie Rafiki → … → Mufasa).";
+    if (hasDiscordAdministrator(moderator)) {
+      const minTgt = getGenericAdminMinTargetStaffIndex();
+      if (tgtIdx >= minTgt) return null;
+      return "Avec la permission Administrateur seule (sans rôle staff listé), tu ne peux pas sanctionner un membre **au-dessus du palier Scar** dans la hiérarchie staff.";
     }
-    return null;
+    return "Tu ne peux pas sanctionner un membre du staff : ajoute-toi un rôle staff reconnu (Rafiki, Scar, Hugo, …) ou la permission **Administrateur** pour les paliers autorisés.";
   }
+
+  // Cible sans rôle dans la liste staff (membres « classiques », rôles de rang Simba, etc.)
+  if (hasDiscordAdministrator(moderator)) return null;
+  if (modIdx !== null) return null;
 
   try {
     if (moderator.roles.highest.comparePositionTo(targetMember.roles.highest) <= 0) {
@@ -95,5 +136,6 @@ module.exports = {
   getHierarchyRoleIds,
   getStaffHierarchyIndex,
   assertCanSanctionMember,
+  getGenericAdminMinTargetStaffIndex,
   DEFAULT_HIERARCHY_TOP_TO_BOTTOM
 };
