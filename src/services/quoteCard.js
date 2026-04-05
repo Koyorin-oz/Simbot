@@ -1,4 +1,5 @@
 const { createCanvas, loadImage } = require("@napi-rs/canvas");
+const { ensureCanvasFonts, canvasFont } = require("../utils/canvasFonts");
 
 const WIDTH = 1200;
 const HEIGHT = 520;
@@ -54,7 +55,7 @@ async function buildQuoteCard(avatarUrl, quoteRaw, displayName, username) {
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = "rgba(255,255,255,0.25)";
-    ctx.font = "120px sans-serif";
+    ctx.font = canvasFont(120);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("?", cx, cy);
@@ -82,7 +83,7 @@ async function buildQuoteCard(avatarUrl, quoteRaw, displayName, username) {
 
   ctx.textAlign = "left";
   ctx.fillStyle = "#f4f4f8";
-  ctx.font = `500 ${fontSize}px "Segoe UI", "Helvetica Neue", sans-serif`;
+  ctx.font = canvasFont(fontSize, { weight: 500 });
   let y = HEIGHT / 2 - (lines.length * (fontSize * 1.25)) / 2 + fontSize * 0.35;
   for (const line of lines) {
     ctx.fillText(line, TEXT_LEFT, y);
@@ -91,15 +92,15 @@ async function buildQuoteCard(avatarUrl, quoteRaw, displayName, username) {
 
   const nameY = Math.min(y + 36, HEIGHT - 120);
   ctx.fillStyle = "rgba(255,255,255,0.92)";
-  ctx.font = 'italic 26px "Segoe UI", "Helvetica Neue", sans-serif';
+  ctx.font = canvasFont(26, { italic: true });
   ctx.fillText(`— ${truncate(displayName, 40)}`, TEXT_LEFT, nameY);
 
   ctx.fillStyle = "rgba(180,180,195,0.85)";
-  ctx.font = '22px "Segoe UI", "Helvetica Neue", sans-serif';
+  ctx.font = canvasFont(22);
   ctx.fillText(`@${truncate(username, 32)}`, TEXT_LEFT, nameY + 34);
 
   ctx.fillStyle = "rgba(255,255,255,0.18)";
-  ctx.font = "13px sans-serif";
+  ctx.font = canvasFont(13);
   ctx.textAlign = "right";
   ctx.fillText("LA CARMINAUTE · citation", WIDTH - 28, HEIGHT - 22);
 
@@ -118,7 +119,7 @@ function truncate(str, max) {
 }
 
 function wrapLines(ctx, text, maxWidth, fontSize) {
-  ctx.font = `500 ${fontSize}px "Segoe UI", "Helvetica Neue", sans-serif`;
+  ctx.font = canvasFont(fontSize, { weight: 500 });
   const words = text.split(" ");
   const lines = [];
   let current = "";

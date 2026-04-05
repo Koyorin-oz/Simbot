@@ -1,6 +1,8 @@
 const { createCanvas, loadImage } = require("@napi-rs/canvas");
+const { ensureCanvasFonts, canvasFont } = require("../utils/canvasFonts");
 
 async function buildLoveCalcCard(userA, userB, percent) {
+  ensureCanvasFonts();
   const width = 1180;
   const height = 430;
   const canvas = createCanvas(width, height);
@@ -30,7 +32,7 @@ async function buildLoveCalcCard(userA, userB, percent) {
   drawAvatarCircle(ctx, avatarB, width - 270, 220, avatarRadius);
 
   ctx.fillStyle = "#fff2f6";
-  ctx.font = "bold 38px sans-serif";
+  ctx.font = canvasFont(38, { bold: true });
   ctx.textAlign = "center";
   ctx.fillText(`RESULTAT: ${percent}%`, width / 2, 108);
 
@@ -43,15 +45,15 @@ async function buildLoveCalcCard(userA, userB, percent) {
   ctx.shadowColor = "rgba(0,0,0,0.28)";
   ctx.shadowBlur = 8;
   ctx.fillStyle = "#fff8fa";
-  ctx.font = "bold 52px sans-serif";
+  ctx.font = canvasFont(52, { bold: true });
   ctx.fillText(`${percent}%`, width / 2, 216);
   ctx.restore();
 
-  ctx.font = "bold 28px sans-serif";
+  ctx.font = canvasFont(28, { bold: true });
   ctx.fillStyle = "#fff3f7";
   ctx.fillText("LOVE CALC", width / 2, 78);
 
-  ctx.font = "24px sans-serif";
+  ctx.font = canvasFont(24);
   ctx.fillStyle = "rgba(255,245,248,0.95)";
   ctx.fillText(shortName(userA.displayName), 270, 380);
   ctx.fillText(shortName(userB.displayName), width - 270, 380);

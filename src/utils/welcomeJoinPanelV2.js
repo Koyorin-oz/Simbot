@@ -4,6 +4,7 @@ const { createCanvas, loadImage } = require("@napi-rs/canvas");
 const { AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const config = require("../config");
 const realServerIds = require("../data/realServerIds");
+const { ensureCanvasFonts, canvasFont } = require("./canvasFonts");
 
 const WIDTH = 1600;
 const HEIGHT = 560;
@@ -48,6 +49,7 @@ function drawRoundedClip(ctx, x, y, w, h, r) {
 }
 
 async function buildWelcomeCard(member) {
+  ensureCanvasFonts();
   const canvas = createCanvas(WIDTH, HEIGHT);
   const ctx = canvas.getContext("2d");
 
@@ -95,13 +97,13 @@ async function buildWelcomeCard(member) {
 
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "center";
-  ctx.font = '700 66px "Segoe UI", sans-serif';
+  ctx.font = canvasFont(66, { bold: true });
   ctx.fillText(`Bienvenue ${member.displayName}`, WIDTH / 2, HEIGHT - 88);
 
-  ctx.font = '600 48px "Segoe UI", sans-serif';
+  ctx.font = canvasFont(48, { weight: 600 });
   ctx.fillText("dans la Carminauté", WIDTH / 2, HEIGHT - 34);
 
-  ctx.font = '700 46px "Segoe UI", sans-serif';
+  ctx.font = canvasFont(46, { bold: true });
   ctx.fillStyle = "rgba(255,255,255,0.97)";
   ctx.fillText(formatMemberTag(member.guild.memberCount), WIDTH / 2, frameY - 14);
 

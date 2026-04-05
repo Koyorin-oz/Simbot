@@ -1,39 +1,11 @@
-const fs = require("node:fs");
 const path = require("node:path");
-const { createCanvas, loadImage, registerFont } = require("@napi-rs/canvas");
+const { createCanvas, loadImage } = require("@napi-rs/canvas");
 const { getLpNeeded, getRankFromSp } = require("./economyService");
 const { formatSC } = require("../utils/currency");
-
-/** Polices embarquées : même rendu Windows / Linux (Pebble sans fonts système). */
-const FONT_REG = "CarminaProfile";
-const FONT_BOLD = "CarminaProfileBold";
-let _profileFontsReady = false;
-
-function ensureProfileFonts() {
-  if (_profileFontsReady) return;
-  _profileFontsReady = true;
-  const reg = path.join(process.cwd(), "assets", "fonts", "NotoSans-Regular.ttf");
-  const bold = path.join(process.cwd(), "assets", "fonts", "NotoSans-Bold.ttf");
-  try {
-    if (fs.existsSync(reg)) registerFont(reg, { family: FONT_REG });
-  } catch {
-    /* ignore */
-  }
-  try {
-    if (fs.existsSync(bold)) registerFont(bold, { family: FONT_BOLD });
-  } catch {
-    /* ignore */
-  }
-}
-
-function f(size, bold = false) {
-  ensureProfileFonts();
-  const face = bold ? FONT_BOLD : FONT_REG;
-  return `${size}px ${face}, sans-serif`;
-}
+const { ensureCanvasFonts, canvasFont } = require("../utils/canvasFonts");
 
 async function buildProfileCard(member, userData) {
-  ensureProfileFonts();
+  ensureCanvasFonts();
   const width = 1150;
   const height = 440;
   const canvas = createCanvas(width, height);
@@ -74,9 +46,9 @@ async function buildProfileCard(member, userData) {
   const pct = Math.min(100, Math.max(0, (userData.levelPoints / needed) * 100));
 
   ctx.fillStyle = "#ffffff";
-  ctx.font = f(48, true);
+  ctx.font = canvasFont(48, { bold: true });
   ctx.fillText(truncateName(ctx, member.displayName, 840), 300, 100);
-  ctx.font = f(24, false);
+  ctx.font = canvasFont(24);
   ctx.fillStyle = "rgba(255,235,220,0.92)";
   ctx.fillText(`Membre depuis: ${new Date(member.joinedAt).toLocaleDateString("fr-FR")}`, 300, 138);
 
@@ -107,7 +79,7 @@ async function buildProfileCard(member, userData) {
   ctx.fillStyle = bar;
   ctx.fill();
 
-  ctx.font = f(21, false);
+  ctx.font = canvasFont(21);
   ctx.fillStyle = "rgba(255,255,255,0.95)";
   ctx.fillText(`${pct.toFixed(1)}% vers le niveau ${userData.level + 1}`, barX, 414);
 
@@ -129,12 +101,12 @@ function drawStatCard(ctx, x, y, w, h, label, value) {
   roundRect(ctx, x, y, w, h, 16);
   ctx.fill();
   ctx.fillStyle = "rgba(255,233,215,0.88)";
-  ctx.font = f(15, false);
+  ctx.font = canvasFont(15);
   ctx.fillText(label, x + 16, y + 28);
   ctx.fillStyle = "#ffffff";
-  ctx.font = f(41, true);
+  ctx.font = canvasFont(41, { bold: true });
   const fitted = fitText(ctx, value, w - 24, 41, 25);
-  ctx.font = f(fitted, true);
+  ctx.font = canvasFont(fitted, { bold: true });
   ctx.fillText(value, x + 16, y + 64);
 }
 
@@ -149,7 +121,7 @@ function truncateName(ctx, value, maxWidth) {
 function fitText(ctx, value, maxWidth, maxSize, minSize) {
   let size = maxSize;
   while (size > minSize) {
-    ctx.font = f(size, true);
+    ctx.font = canvasFont(size, { bold: true });
     if (ctx.measureText(String(value)).width <= maxWidth) break;
     size -= 1;
   }
@@ -176,7 +148,7 @@ async function drawLionBadge(ctx) {
     ctx.restore();
   } catch {
     ctx.fillStyle = "rgba(255,225,170,0.9)";
-    ctx.font = f(34, true);
+    ctx.font = canvasFont(34, { bold: true });
     ctx.fillText("🦁", badgeX + 45, badgeY + 58);
   }
 }

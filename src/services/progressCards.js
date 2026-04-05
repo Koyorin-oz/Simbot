@@ -2,6 +2,7 @@ const { createCanvas, loadImage } = require("@napi-rs/canvas");
 const path = require("node:path");
 const config = require("../config");
 const { getLpNeeded, getRankFromSp } = require("./economyService");
+const { ensureCanvasFonts, canvasFont } = require("../utils/canvasFonts");
 
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -34,6 +35,7 @@ function drawProgressBar(ctx, x, y, w, h, pct, gradientStops) {
  * @param {{ level: number, levelPoints: number }} userData
  */
 async function buildLevelUpCard(member, userData) {
+  ensureCanvasFonts();
   const width = 1000;
   const height = 360;
   const canvas = createCanvas(width, height);
@@ -73,12 +75,12 @@ async function buildLevelUpCard(member, userData) {
   const pct = needed > 0 ? Math.min(100, Math.max(0, (lp / needed) * 100)) : 0;
 
   ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 52px sans-serif";
+  ctx.font = canvasFont(52, { bold: true });
   ctx.fillText(`Niveau ${level}`, 240, 95);
-  ctx.font = "24px sans-serif";
+  ctx.font = canvasFont(24);
   ctx.fillStyle = "rgba(255,235,220,0.9)";
   ctx.fillText(`Progression vers le niveau ${level + 1}`, 240, 132);
-  ctx.font = "20px sans-serif";
+  ctx.font = canvasFont(20);
   ctx.fillText(`${lp.toLocaleString("fr-FR")} / ${needed.toLocaleString("fr-FR")} LP  ·  ${pct.toFixed(1)}%`, 240, 165);
 
   const barX = 240;
@@ -91,7 +93,7 @@ async function buildLevelUpCard(member, userData) {
     [1, "#e3311f"]
   ]);
 
-  ctx.font = "18px sans-serif";
+  ctx.font = canvasFont(18);
   ctx.fillStyle = "rgba(255,255,255,0.75)";
   ctx.fillText("Carte palier niveau — La Carminauté", barX, 290);
 
@@ -121,6 +123,7 @@ function getTierIndex(rankKey) {
  * @param {string} rankKey
  */
 async function buildRankUpCard(member, userData, rankKey) {
+  ensureCanvasFonts();
   const width = 1000;
   const height = 360;
   const canvas = createCanvas(width, height);
@@ -170,12 +173,12 @@ async function buildRankUpCard(member, userData, rankKey) {
   }
 
   ctx.fillStyle = "#f8fafc";
-  ctx.font = "bold 48px sans-serif";
+  ctx.font = canvasFont(48, { bold: true });
   ctx.fillText("Rang Simba", 240, 95);
-  ctx.font = "26px sans-serif";
+  ctx.font = canvasFont(26);
   ctx.fillStyle = "rgba(191, 219, 254, 0.95)";
   ctx.fillText(currentTier?.name ? String(currentTier.name) : rankKey, 240, 138);
-  ctx.font = "20px sans-serif";
+  ctx.font = canvasFont(20);
   ctx.fillStyle = "rgba(226, 232, 240, 0.88)";
   ctx.fillText(subline, 240, 172);
 
@@ -189,7 +192,7 @@ async function buildRankUpCard(member, userData, rankKey) {
     [1, "#1d4ed8"]
   ]);
 
-  ctx.font = "18px sans-serif";
+  ctx.font = canvasFont(18);
   ctx.fillStyle = "rgba(255,255,255,0.7)";
   ctx.fillText(`Progression vers le prochain palier de rang — ${pct.toFixed(1)}%`, barX, 290);
 
