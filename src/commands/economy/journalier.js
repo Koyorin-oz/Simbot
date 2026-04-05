@@ -10,9 +10,15 @@ module.exports = {
   async execute(client, interaction) {
     await deferPublic(interaction);
     const reward = config.rewards.dailyOptions[randomBetween(0, config.rewards.dailyOptions.length - 1)];
+    const userId = String(interaction.user.id);
+    const guildId = String(interaction.guildId || "");
+    if (!guildId) {
+      await interaction.editReply({ content: "Cette commande est utilisable sur un serveur uniquement." });
+      return;
+    }
     const claim = await client.prisma.rewardClaim.upsert({
-      where: { userId_guildId: { userId: interaction.user.id, guildId: interaction.guildId } },
-      create: { userId: interaction.user.id, guildId: interaction.guildId, dailyAt: new Date(0) },
+      where: { userId_guildId: { userId, guildId } },
+      create: { userId, guildId, dailyAt: new Date(0) },
       update: {}
     });
     if (isDailyAlreadyClaimedParisDay(claim.dailyAt)) {
@@ -23,10 +29,10 @@ module.exports = {
       return;
     }
 
-    await ensureUser(client.prisma, interaction.guildId, interaction.user.id);
-    await client.prisma.user.update({ where: { userId: interaction.user.id }, data: { simbaCoins: { increment: reward } } });
+    await ensureUser(client.prisma, guildId, userId);
+    await client.prisma.user.update({ where: { userId }, data: { simbaCoins: { increment: reward } } });
     await client.prisma.rewardClaim.update({
-      where: { userId_guildId: { userId: interaction.user.id, guildId: interaction.guildId } },
+      where: { userId_guildId: { userId, guildId } },
       data: { dailyAt: new Date() }
     });
 
