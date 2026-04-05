@@ -1,6 +1,15 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
+const {
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  MessageFlags
+} = require("discord.js");
 const { buildSanctionEmbed } = require("../../utils/sanctionEmbed");
 const { APPEAL_FORM_URL } = require("../../utils/ticketPanels");
+const { assertCanSanctionMember } = require("../../utils/staffSanctionHierarchy");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -12,6 +21,18 @@ module.exports = {
   async execute(client, interaction) {
     const user = interaction.options.getUser("membre", true);
     const reason = interaction.options.getString("raison") || "Aucune raison";
+
+    const targetMember = await interaction.guild.members.fetch(user.id).catch(() => null);
+    const hierarchyFail = assertCanSanctionMember(
+      interaction.member,
+      targetMember,
+      interaction.guild,
+      interaction.user.id
+    );
+    if (hierarchyFail) {
+      await interaction.reply({ content: hierarchyFail, flags: MessageFlags.Ephemeral });
+      return;
+    }
 
     await interaction.deferReply();
 

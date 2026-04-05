@@ -1,8 +1,9 @@
-const {SlashCommandBuilder, PermissionFlagsBits} = require("discord.js");
+const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
 const ms = require("ms");
 const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
 const { buildSanctionEmbed } = require("../../utils/sanctionEmbed");
 const { deferPublic } = require("../../utils/slashDefer");
+const { assertCanSanctionMember } = require("../../utils/staffSanctionHierarchy");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -21,6 +22,16 @@ module.exports = {
     const reason = interaction.options.getString("raison") || "Aucune raison";
     const duration = ms(durationRaw);
     if (!member) return interaction.editReply({ content: "Membre introuvable sur ce serveur." });
+    const hierarchyFail = assertCanSanctionMember(
+      interaction.member,
+      member,
+      interaction.guild,
+      interaction.user.id
+    );
+    if (hierarchyFail) {
+      await interaction.editReply({ content: hierarchyFail });
+      return;
+    }
     if (member.id === interaction.user.id) return interaction.editReply({ content: "Tu ne peux pas te mute toi-meme." });
     if (member.user.bot) return interaction.editReply({ content: "Impossible de mute un bot." });
     if (!member.moderatable) return interaction.editReply({ content: "Je ne peux pas mute ce membre (hierarchie/permissions)." });
