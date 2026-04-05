@@ -3,7 +3,6 @@ const {
   TextInputBuilder,
   TextInputStyle,
   ActionRowBuilder,
-  AttachmentBuilder,
   PermissionFlagsBits,
   EmbedBuilder,
   ButtonBuilder,
@@ -182,15 +181,7 @@ function normalizeDeployPanel(input) {
   return map[value] || null;
 }
 
-// Background boutique "Roi Lion" flouté.
-const SHOP_BG_PATH = "assets\\shop-banner.png";
-
-function createLionAttachment() {
-  // eslint-disable-next-line global-require
-  const fs = require("node:fs");
-  const buffer = fs.readFileSync(SHOP_BG_PATH);
-  return new AttachmentBuilder(buffer, { name: "shop-banner.png" });
-}
+const { readShopBannerAttachment } = require("../../utils/shopBanner");
 
 module.exports = {
   name: "interactionCreate",
@@ -577,17 +568,20 @@ module.exports = {
     if (interaction.isStringSelectMenu() && interaction.customId === "shop_item") {
       const selected = interaction.values[0];
       client.shopSessions.set(interaction.user.id, selected);
-      const attachment = createLionAttachment();
+      const { attachment, hasFile } = readShopBannerAttachment();
       const user = await ensureUser(client.prisma, interaction.guildId, interaction.user.id);
       const inv = await getInventorySnapshot(client.prisma, interaction.guildId, interaction.user.id);
       const now = new Date();
       const timeLabel = now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
       const panel = buildShopPanel(config, user.simbaCoins, timeLabel, selected, {
-        canBuyCustomRole: !user.customRoleUnlocked && !user.customRoleId && (inv.customRoleCount || 0) < 1
+        canBuyCustomRole: !user.customRoleUnlocked && !user.customRoleId && (inv.customRoleCount || 0) < 1,
+        includeShopBanner: hasFile
       });
       await interaction.update({
-        files: [attachment],
-        components: panel.components
+        files: attachment ? [attachment] : [],
+        components: panel.components,
+        flags: panel.flags,
+        embeds: panel.embeds ?? []
       });
       return;
     }

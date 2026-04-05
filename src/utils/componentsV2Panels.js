@@ -22,15 +22,20 @@ const ACCENT_COLOR = 0x1b1825;
 
 function buildShopPanel(config, simbaCoins, timeLabel, selected, shopState = {}) {
   const canBuyCustomRole = shopState.canBuyCustomRole !== false;
-  const container = new ContainerBuilder()
-    .setAccentColor(ACCENT_COLOR)
-    .addMediaGalleryComponents(
-      new MediaGalleryBuilder().addItems(
-        new MediaGalleryItemBuilder().setURL("attachment://shop-banner.png")
+  /** Si false : pas d’image (fichier manquant ou hébergeur Linux sans bannière). */
+  const includeShopBanner = shopState.includeShopBanner !== false;
+
+  const container = new ContainerBuilder().setAccentColor(ACCENT_COLOR);
+  if (includeShopBanner) {
+    container
+      .addMediaGalleryComponents(
+        new MediaGalleryBuilder().addItems(
+          new MediaGalleryItemBuilder().setURL("attachment://shop-banner.png")
+        )
       )
-    )
-    .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-    .addTextDisplayComponents(
+      .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+  }
+  container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
         [
           "## :star: Shop",
