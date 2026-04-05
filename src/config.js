@@ -118,9 +118,8 @@ module.exports = {
     // Rappel: voir `src/data/realServerIds.js` avant `/deployer-vrai-ids`.
     // Priorite : ID cree par /setup-salons (bienvenue), sinon valeur ci-dessous.
     channelId: ch.welcomeChannelId || "1487455251152769226",
-    // Fond du canvas de bienvenue (laisser vide pour fallback automatique).
-    canvasBackgroundPath:
-      "C:\\Users\\koyor\\.cursor\\projects\\c-Users-koyor-OneDrive-Documents-Desktop-GM-CARMINABOT\\assets\\c__Users_koyor_AppData_Roaming_Cursor_User_workspaceStorage_807d0a7989207b892549e0e965b63191_images_image-5157a8ff-692c-4d44-8e8c-3200e78c7c01.png",
+    // Fond du canvas : chemin absolu optionnel. Sinon voir assets/welcome-canvas-background.* ou .env WELCOME_CANVAS_BACKGROUND.
+    canvasBackgroundPath: "",
     rulesChannelId: "1428410217170866177",
     helpChannelId: "740157072158621736"
   },

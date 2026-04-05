@@ -14,18 +14,26 @@ function formatMemberTag(n) {
   return `#${n}`;
 }
 
+/**
+ * Fond carte bienvenue (cover sur tout le canvas).
+ * Ordre : WELCOME_CANVAS_BACKGROUND (.env, chemin absolu Pebble) → config.welcome.canvasBackgroundPath
+ * → fichiers dans le repo : assets/welcome-canvas-background.png|.jpg|.webp
+ *
+ * Évite les chemins Windows codés en dur : sur Linux (Pebble) ils n'existent pas → fond gris.
+ */
 function getBackgroundPath() {
+  const envPath = String(process.env.WELCOME_CANVAS_BACKGROUND || "").trim();
+  if (envPath && fs.existsSync(envPath)) return envPath;
+
   const configured = String(config.welcome?.canvasBackgroundPath || "").trim();
-  const fallback = path.join(
-    process.env.USERPROFILE || "",
-    ".cursor",
-    "projects",
-    "c-Users-koyor-OneDrive-Documents-Desktop-GM-CARMINABOT",
-    "assets",
-    "c__Users_koyor_AppData_Roaming_Cursor_User_workspaceStorage_807d0a7989207b892549e0e965b63191_images_image-5157a8ff-692c-4d44-8e8c-3200e78c7c01.png"
-  );
   if (configured && fs.existsSync(configured)) return configured;
-  if (fs.existsSync(fallback)) return fallback;
+
+  const base = path.join(process.cwd(), "assets");
+  const names = ["welcome-canvas-background.png", "welcome-canvas-background.jpg", "welcome-canvas-background.webp"];
+  for (const name of names) {
+    const p = path.join(base, name);
+    if (fs.existsSync(p)) return p;
+  }
   return null;
 }
 
