@@ -3,7 +3,7 @@ const ms = require("ms");
 const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
 const { buildSanctionEmbed } = require("../../utils/sanctionEmbed");
 const { deferPublic } = require("../../utils/slashDefer");
-const { assertCanSanctionMember } = require("../../utils/staffSanctionHierarchy");
+const { assertCanSanctionMember, formatBotHierarchyBlockReason } = require("../../utils/staffSanctionHierarchy");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -34,7 +34,14 @@ module.exports = {
     }
     if (member.id === interaction.user.id) return interaction.editReply({ content: "Tu ne peux pas te mute toi-meme." });
     if (member.user.bot) return interaction.editReply({ content: "Impossible de mute un bot." });
-    if (!member.moderatable) return interaction.editReply({ content: "Je ne peux pas mute ce membre (hierarchie/permissions)." });
+    if (!member.moderatable) {
+      const botWhy = formatBotHierarchyBlockReason(interaction.guild, member);
+      return interaction.editReply({
+        content:
+          botWhy ||
+          "Je ne peux pas appliquer le timeout. Vérifie que j’ai **Modérer les membres** et que mon rôle est **au-dessus** de la cible dans **Paramètres → Rôles**."
+      });
+    }
     if (!duration || duration < 1000) return interaction.editReply({ content: "Duree invalide. Exemple: 10m, 1h, 2d." });
     if (duration > MAX_TIMEOUT_MS) return interaction.editReply({ content: "Duree trop longue (max 28 jours)." });
 

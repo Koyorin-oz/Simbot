@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags } = require("discord.js");
 const { buildSanctionEmbed } = require("../../utils/sanctionEmbed");
 const { deferPublic } = require("../../utils/slashDefer");
-const { assertCanSanctionMember } = require("../../utils/staffSanctionHierarchy");
+const { assertCanSanctionMember, formatBotHierarchyBlockReason } = require("../../utils/staffSanctionHierarchy");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -26,6 +26,16 @@ module.exports = {
     }
 
     await deferPublic(interaction);
+
+    if (!member.moderatable) {
+      const botWhy = formatBotHierarchyBlockReason(interaction.guild, member);
+      await interaction.editReply({
+        content:
+          botWhy ||
+          "Je ne peux pas expulser ce membre. Vérifie que mon rôle du bot est **au-dessus** de la cible dans **Paramètres → Rôles** et que j’ai **Expulser des membres**."
+      });
+      return;
+    }
 
     const preKickDm = new EmbedBuilder()
       .setColor(0xfee75c)
