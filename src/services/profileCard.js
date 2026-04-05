@@ -2,7 +2,7 @@ const path = require("node:path");
 const { createCanvas, loadImage } = require("@napi-rs/canvas");
 const { getLpNeeded, getRankFromSp } = require("./economyService");
 const { formatSC } = require("../utils/currency");
-const { ensureCanvasFonts, canvasFont } = require("../utils/canvasFonts");
+const { ensureCanvasFonts, canvasFont, canvasSerifFont } = require("../utils/canvasFonts");
 
 async function buildProfileCard(member, userData) {
   ensureCanvasFonts();
@@ -79,7 +79,7 @@ async function buildProfileCard(member, userData) {
   ctx.fillStyle = bar;
   ctx.fill();
 
-  ctx.font = canvasFont(21);
+  ctx.font = canvasSerifFont(21);
   ctx.fillStyle = "rgba(255,255,255,0.95)";
   ctx.fillText(`${pct.toFixed(1)}% vers le niveau ${userData.level + 1}`, barX, 414);
 
@@ -104,9 +104,9 @@ function drawStatCard(ctx, x, y, w, h, label, value) {
   ctx.font = canvasFont(15);
   ctx.fillText(label, x + 16, y + 28);
   ctx.fillStyle = "#ffffff";
-  ctx.font = canvasFont(41, { bold: true });
+  ctx.font = canvasSerifFont(41, { bold: true });
   const fitted = fitText(ctx, value, w - 24, 41, 25);
-  ctx.font = canvasFont(fitted, { bold: true });
+  ctx.font = canvasSerifFont(fitted, { bold: true });
   ctx.fillText(value, x + 16, y + 64);
 }
 
@@ -121,7 +121,7 @@ function truncateName(ctx, value, maxWidth) {
 function fitText(ctx, value, maxWidth, maxSize, minSize) {
   let size = maxSize;
   while (size > minSize) {
-    ctx.font = canvasFont(size, { bold: true });
+    ctx.font = canvasSerifFont(size, { bold: true });
     if (ctx.measureText(String(value)).width <= maxWidth) break;
     size -= 1;
   }
@@ -148,7 +148,7 @@ async function drawLionBadge(ctx) {
     ctx.restore();
   } catch {
     ctx.fillStyle = "rgba(255,225,170,0.9)";
-    ctx.font = canvasFont(34, { bold: true });
+    ctx.font = canvasSerifFont(34, { bold: true });
     ctx.fillText("🦁", badgeX + 45, badgeY + 58);
   }
 }
