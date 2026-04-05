@@ -5,6 +5,12 @@ alwaysApply: true
 
 # Déploiement automatique CARMINABOT (priorité absolue)
 
+## Routine à chaque modification (résumé)
+
+1. **Modifier le code** → **commit + `git push` vers `origin/main`** dans la même session Cursor (sans que l’utilisateur ait à le rappeler).
+2. **PebbleHost** est branché sur GitHub : après le push, un **restart** du serveur suffit pour **pull** le dernier code (Git Management).
+3. L’utilisateur peut aussi lancer **`npm run ship -- "message du commit"`** à la racine pour tout pousser d’un coup (hors `.env`).
+
 Dès que tu **modifies le code du bot** dans ce dépôt, tu **dois** enchaîner les étapes ci-dessous **sans attendre** que l’utilisateur le demande. **`git push` et `npm run deploy:commands` (quand requis) ont la même importance** : la tâche n’est pas finie si l’un des deux manque alors qu’il était nécessaire.
 
 ## 1. Toujours : Git

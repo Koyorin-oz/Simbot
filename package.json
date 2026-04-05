@@ -8,6 +8,7 @@
     "postinstall": "node node_modules/prisma/build/index.js generate",
     "start": "node node_modules/prisma/build/index.js migrate deploy && node node_modules/prisma/build/index.js generate && node src/index.js",
     "dev": "node --watch src/index.js",
+    "ship": "node scripts/git-ship.cjs",
     "deploy:commands": "node src/deploy-commands.js",
     "prisma:generate": "node node_modules/prisma/build/index.js generate",
     "prisma:migrate": "node node_modules/prisma/build/index.js migrate dev --name init"
