@@ -1,0 +1,160 @@
+══════════════════════════════════════════════════════════════
+LA CARMINAUTE — GUIDE MEMBRES (économie, rangs, commandes)
+À poster sur Discord ; découper si besoin (limite ~2000 caractères / message).
+══════════════════════════════════════════════════════════════
+
+Salut la Carminauté,
+
+Voici **tout ce qu’il faut savoir** sur l’économie du serveur et les **commandes réservées aux membres** (sans les outils staff / modération / admin).
+
+────────────────────────────────────────
+1) TROIS RESSOURCES À CONNAÎTRE
+────────────────────────────────────────
+
+**Simba Coins (SC)** — la monnaie du serveur (affichée style € … SC dans ton profil). Sert à la **boutique** (objets, boosts, rôle perso…), aux **transferts**, aux **prêts**, etc.
+
+**Simba Points (SP)** — ton **prestige** et ton **rang**. Plus tu as de SP, plus tu montes dans la **hiérarchie des rangs** (Hyène → … → Cardinal). Les SP montent en **discutant** et en **vocal** ; à partir d’un certain rang, l’**inactivité** peut faire **perdre** des SP (voir section 4).
+
+**Level Points (LP)** — ton **niveau** (“niveau 1, 2, 3…”). Tu gagnes des LP comme les SC/SP en étant actif. Quand tu as assez de LP pour le niveau actuel, tu **passes au niveau suivant** ; la barre repart à zéro. **Plus le niveau est élevé, plus il faut de LP** pour le suivant (courbe qui monte).
+
+────────────────────────────────────────
+2) COMMENT GAGNER SC, SP ET LP
+────────────────────────────────────────
+
+**Messages texte**
+• Cooldown entre deux gains : **45 secondes**.
+• Message **d’au moins 6 caractères**.
+• Gains aléatoires par message (ordre de grandeur) : **SC 35–90**, **SP 20–55**, **LP 24–65** (avant boosts).
+
+**Salon vocal**
+• Toutes les **10 minutes** passées en vocal : **220 SC**, **120 SP**, **170 LP** (avant boosts).
+
+**Boosts (boutique / inventaire)**
+• **Café** : boost **temporaire** sur tes gains (pourcentage aléatoire dans une fourchette, durée limitée).
+• **Couronne** (objet permanent) : bonus sur les gains **SP et LP**.
+• **Tirelire** (objet permanent) : bonus sur les gains **SC**.
+
+────────────────────────────────────────
+3) TABLEAU DES RANGS (SIMBA POINTS)
+────────────────────────────────────────
+
+Ton **rang** = le palier le plus haut dont tu as au moins les SP minimum.
+
+• **Hyène I** — 0 SP
+• **Hyène II** — 450 SP
+• **Hyène III** — 900 SP
+• **Pumba I** — 1 500 SP
+• **Pumba II** — 2 300 SP
+• **Pumba III** — 3 200 SP
+• **Shenzi I** — 4 300 SP
+• **Shenzi II** — 5 600 SP
+• **Shenzi III** — 7 100 SP
+• **Timon I** — 9 000 SP
+• **Timon II** — 11 200 SP
+• **Timon III** — 13 800 SP
+• **Nala I** — 17 000 SP
+• **Nala II** — 20 800 SP
+• **Nala III** — 25 400 SP
+• **Sarabi** — 40 000 SP  *(clé technique “scar” dans le bot)*
+• **Cardinal** — 100 000 SP
+
+Sur Discord, tu peux aussi avoir un **rôle de couleur** lié à ton rang si le staff a configuré les rôles automatiques.
+
+────────────────────────────────────────
+4) PERTE DE SP SI TU ES INACTIF (À PARTIR DE NALA)
+────────────────────────────────────────
+
+À partir du rang **Nala** (17 000 SP et plus), si tu ne gagnes **ni message ni vocal** pendant longtemps, le bot peut **retirer des SP** par “ticks” d’inactivité.
+
+• **24 h** sans activité économique → la dégradation peut commencer.
+• Entre deux pertes : au moins **6 h**.
+• Montants indicatifs par tick : **Nala** −18 SP, **Sarabi** −48 SP, **Cardinal** −72 SP.
+
+Dès que tu reparles / reviens en vocal avec gain, ça **réinitialise** la logique côté activité.
+
+────────────────────────────────────────
+5) RÉCOMPENSES FIXES (SC) — COMMANDES
+────────────────────────────────────────
+
+**/quotidien** ou **/journalier** — une récompense **journalière** en SC : tirage parmi **2 000 / 5 000 / 7 000 / 10 000** SC. **Une seule récupération par jour** (minuit **heure de Paris**) : les deux commandes partagent le **même** compteur, inutile de faire les deux.
+
+**/hebdomadaire** — **25 000** SC si tu es éligible (cooldown hebdo).
+
+**/mensuel** — **50 000** SC si tu es éligible (cooldown mensuel).
+
+────────────────────────────────────────
+6) BOUTIQUE & INVENTAIRE
+────────────────────────────────────────
+
+**/boutique** — panneau interactif : achat avec tes **SC** (prix indicatifs config actuelle : café ~5 500 SC, tirelire ~700 000 SC, couronne & déblocage rôle perso ~1 400 000 SC ; les pourcentages de boost sont affichés en jeu).
+
+**/inventaire** — voir tes objets (café, rôle perso en attente, etc.) et les utiliser selon les boutons proposés.
+
+**/role perso** — créer **ton rôle personnalisé** une fois l’objet débloqué / acheté (couleur, nom selon les règles du serveur).
+
+────────────────────────────────────────
+7) ARGENT ENTRE MEMBRES — PRÊTS
+────────────────────────────────────────
+
+**/transfert-sc** — envoyer des **SC** à un membre (**le destinataire doit accepter**).
+
+**/donner** — sous-commandes :
+• **sc** / **argent** — don de SC (direct).
+• **sp** — don de SP.
+• **lp** — don de LP.
+• **item** — donner café ou ticket **rôle perso** depuis **ton** inventaire.
+
+**/pret**
+• **demander** — emprunt jusqu’à **5 000 000** SC max, **1 prêt actif** à la fois.
+• **rembourser** — rembourse avec tes SC.
+• **statut** — solde restant, échéance, nombre de défauts.
+
+Règles importantes :
+• Remboursement attendu sous **14 jours** après l’accord du prêt.
+• Nouveau prêt possible **21 jours** après le précédent (sauf cas particulier selon ton historique).
+• **3 défauts** (prêts non honorés) → **plus de prêt**.
+• Si tu ne rembourses pas à l’échéance : pénalités sévères sur ton solde (dont pénalité **1 000 000** SC si tu n’as **rien** remboursé du tout).
+
+────────────────────────────────────────
+8) PROFIL & CLASSEMENT
+────────────────────────────────────────
+
+**/profil** — carte image : pseudo, **SC**, **SP**, **rang**, **niveau**, **LP / LP requis**, **%** vers le prochain niveau. Tu peux cibler un autre membre avec l’option **membre**.
+
+**/classement** — classements **SC**, **SP**, **LP** avec pagination (boutons).
+
+────────────────────────────────────────
+9) FUN & VIE DU SERVEUR
+────────────────────────────────────────
+
+**/blague** — blague du catalogue (humour noir), **1 fois par jour** par membre (staff/admin sans limite).
+
+**/love-calc** — calcule un % “love” entre deux membres (fun).
+
+**/morpion** — morpion interactif.
+
+**/puissance4** — puissance 4 interactif.
+
+**/flex** — embed + GIF ; **uniquement** dans certains salons autorisés par le bot (sinon message d’erreur).
+
+**/citer** — génère une **carte citation** à partir de l’**ID** d’un message du salon (clic droit → Copier l’identifiant).
+
+**/anniversaire** — enregistrer ta date d’anniversaire (modal).
+
+**/anniversaires** — voir les anniversaires à venir.
+
+**/suggestion** — proposer une idée (réservé **membres vérifiés** ou staff selon la config du serveur).
+
+**/infos-serveur** — infos sur un **rôle** (sous-commande avec option rôle).
+
+**/voc-panel** — panneau des **vocaux privés** : à utiliser **connecté au salon vocal d’accueil** (lobby) configuré sur le serveur.
+
+────────────────────────────────────────
+10) CE QUI N’EST PAS DANS CE GUIDE
+────────────────────────────────────────
+
+Volontairement **non listé** ici : commandes **modération** (ban, kick, mute, warn, clear, etc.), commandes **admin / dev** (setup, give/remove massifs, pause économie, panneaux staff, etc.) et outils **réservés au staff** (vote interne, giveaways staff, etc.). Si tu as un rôle staff, tu as déjà accès à la doc ou aux salons dédiés.
+
+────────────────────────────────────────
+
+Bon farm, bon rang, et bienvenue dans l’économie La Carminauté.
