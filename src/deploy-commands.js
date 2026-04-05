@@ -1,6 +1,6 @@
-require("dotenv").config({ override: true });
 const fs = require("node:fs");
 const path = require("node:path");
+require("dotenv").config({ path: path.join(__dirname, "..", ".env"), override: true });
 const { REST, Routes } = require("discord.js");
 const { mainGuildId } = require("./config");
 
@@ -25,10 +25,28 @@ function walk(dir) {
 }
 
 (async () => {
+  const token = String(process.env.DISCORD_TOKEN || "").trim();
+  const clientId = String(process.env.DISCORD_CLIENT_ID || "").trim();
+  if (!token) {
+    console.error(
+      "[DEPLOY] DISCORD_TOKEN vide — verifie la racine du projet (fichier .env) et le nom exact de la variable."
+    );
+    process.exit(1);
+  }
+  if (!clientId) {
+    console.error(
+      "[DEPLOY] DISCORD_CLIENT_ID vide — c'est l'**Application ID** (Onglet General de ton app sur discord.com/developers)."
+    );
+    console.error(
+      "[DEPLOY] Si ton .env utilise CLIENT_ID ou APPLICATION_ID, renomme en DISCORD_CLIENT_ID=..."
+    );
+    process.exit(1);
+  }
+
   const argGuildId = process.argv[2];
   const guildId = argGuildId || process.env.DISCORD_GUILD_ID || process.env.GUILD_ID || mainGuildId;
   console.log(
-    `[DEPLOY] CLIENT_ID=${process.env.DISCORD_CLIENT_ID} GUILD_ID=${guildId} SOURCE=${argGuildId ? "argv" : "env"}`
+    `[DEPLOY] CLIENT_ID=${clientId} GUILD_ID=${guildId} SOURCE=${argGuildId ? "argv" : "env"}`
   );
   const commands = [];
   const files = walk(path.join(__dirname, "commands"));
@@ -42,8 +60,8 @@ function walk(dir) {
     commands.push(payload);
   }
 
-  const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
-  await rest.put(Routes.applicationGuildCommands(process.env.DISCORD_CLIENT_ID, guildId), {
+  const rest = new REST({ version: "10" }).setToken(token);
+  await rest.put(Routes.applicationGuildCommands(clientId, guildId), {
     body: commands
   });
   console.log(`Commandes deployees: ${commands.length}`);
