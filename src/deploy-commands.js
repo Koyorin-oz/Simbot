@@ -1,8 +1,34 @@
 const fs = require("node:fs");
 const path = require("node:path");
-require("dotenv").config({ path: path.join(__dirname, "..", ".env"), override: true });
+
+const envPath = path.join(__dirname, "..", ".env");
+if (!fs.existsSync(envPath)) {
+  console.error(`[DEPLOY] Fichier .env introuvable : ${envPath}`);
+  process.exit(1);
+}
+require("dotenv").config({ path: envPath, override: true });
 const { REST, Routes } = require("discord.js");
 const { mainGuildId } = require("./config");
+
+function resolveDiscordToken() {
+  return String(
+    process.env.DISCORD_TOKEN ||
+      process.env.DISCORD_BOT_TOKEN ||
+      process.env.BOT_TOKEN ||
+      process.env.TOKEN ||
+      ""
+  ).trim();
+}
+
+function resolveDiscordClientId() {
+  return String(
+    process.env.DISCORD_CLIENT_ID ||
+      process.env.CLIENT_ID ||
+      process.env.APPLICATION_ID ||
+      process.env.DISCORD_APPLICATION_ID ||
+      ""
+  ).trim();
+}
 
 const DISABLED_COMMAND_FILES = new Set([
   "give-sc.js",
@@ -25,20 +51,17 @@ function walk(dir) {
 }
 
 (async () => {
-  const token = String(process.env.DISCORD_TOKEN || "").trim();
-  const clientId = String(process.env.DISCORD_CLIENT_ID || "").trim();
+  const token = resolveDiscordToken();
+  const clientId = resolveDiscordClientId();
   if (!token) {
     console.error(
-      "[DEPLOY] DISCORD_TOKEN vide — verifie la racine du projet (fichier .env) et le nom exact de la variable."
+      "[DEPLOY] Token Discord vide — definis une de : DISCORD_TOKEN, DISCORD_BOT_TOKEN, BOT_TOKEN, TOKEN (dans .env a la racine)."
     );
     process.exit(1);
   }
   if (!clientId) {
     console.error(
-      "[DEPLOY] DISCORD_CLIENT_ID vide — c'est l'**Application ID** (Onglet General de ton app sur discord.com/developers)."
-    );
-    console.error(
-      "[DEPLOY] Si ton .env utilise CLIENT_ID ou APPLICATION_ID, renomme en DISCORD_CLIENT_ID=..."
+      "[DEPLOY] Client / Application ID vide — definis une de : DISCORD_CLIENT_ID, CLIENT_ID, APPLICATION_ID (portail Discord > General > Application ID)."
     );
     process.exit(1);
   }
