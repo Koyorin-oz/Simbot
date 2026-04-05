@@ -5,12 +5,12 @@
   "main": "src/index.js",
   "type": "commonjs",
   "scripts": {
-    "postinstall": "prisma generate",
-    "start": "prisma migrate deploy && prisma generate && node src/index.js",
+    "postinstall": "node node_modules/prisma/build/index.js generate",
+    "start": "node node_modules/prisma/build/index.js migrate deploy && node node_modules/prisma/build/index.js generate && node src/index.js",
     "dev": "node --watch src/index.js",
     "deploy:commands": "node src/deploy-commands.js",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev --name init"
+    "prisma:generate": "node node_modules/prisma/build/index.js generate",
+    "prisma:migrate": "node node_modules/prisma/build/index.js migrate dev --name init"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.80",
