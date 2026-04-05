@@ -149,7 +149,16 @@ async function ensureRankRolesForGuild(client, guild) {
     }
   }
 
-  await reorderRankRoles(guild, mapping);
+  /**
+   * Ne plus réordonner les rôles par défaut : un sync de rang (message/vocal) appelait
+   * ensureRankRoles → setPositions et écrasait l’ordre manuel dans Paramètres > Rôles.
+   * Pour réactiver l’ancien comportement (ancres A/B), mets RANK_ROLES_AUTO_REORDER=1 dans .env
+   */
+  const autoReorder = String(process.env.RANK_ROLES_AUTO_REORDER || "").trim();
+  if (autoReorder === "1" || /^true$/i.test(autoReorder)) {
+    await reorderRankRoles(guild, mapping);
+  }
+
   client.rankRoleMapByGuild.set(guild.id, mapping);
   return mapping;
 }
@@ -322,5 +331,7 @@ module.exports = {
   ensureAllGuildRankRoles,
   syncRankRoleForMember,
   removeRankRolesForGuild,
-  buildStyledRankName
+  buildStyledRankName,
+  /** Réordonne entre les deux ancres (rare ; voir RANK_ROLES_AUTO_REORDER). */
+  reorderRankRoles
 };

@@ -15,10 +15,11 @@ module.exports = {
 
     await interaction.editReply(
       [
-        "✅ Roles de rang traites pour ce serveur.",
-        `- Rangs configures: ${totalConfigured}`,
-        `- Roles trouves/crees: ${totalResolved}`,
-        "- Ordre + couleurs + emoji appliques."
+        "✅ Rôles de rang traités pour ce serveur.",
+        `- Rangs configurés : ${totalConfigured}`,
+        `- Rôles trouvés/créés : ${totalResolved}`,
+        "- Noms / couleurs / emoji mis à jour si besoin.",
+        "- **L’ordre des rôles dans la liste Discord n’est plus modifié** par le bot (place-les à la main une fois). Réordonnancement auto uniquement si `RANK_ROLES_AUTO_REORDER=1` dans `.env`."
       ].join("\n")
     );
   }
