@@ -13,7 +13,32 @@ module.exports = {
     verifiedId: "973960786290544690",
     suggestionsStaffRoleId: "740999121812586567",
     /** Acces salons tickets (staff + transcript / fermeture cote ticketService). */
-    ticketsStaffRoleId: "740999121812586567"
+    ticketsStaffRoleId: "740999121812586567",
+
+    /**
+     * IDs Discord des rôles de **rang** (même ordre que le bot : hyene_1 → cardinal).
+     * Sert aux annonces avec mentions. Remplis avec : Paramètres serveur → Rôles → clic droit sur le rôle → Copier l’identifiant (mode développeur).
+     * Laisse "" pour ignorer ce rang dans les pings générés par `node scripts/render-annonce-membres.cjs`.
+     */
+    rankRolePingIdsByKey: {
+      hyene_1: "",
+      hyene_2: "",
+      hyene_3: "",
+      pumba_1: "",
+      pumba_2: "",
+      pumba_3: "",
+      shenzi_1: "",
+      shenzi_2: "",
+      shenzi_3: "",
+      timon_1: "",
+      timon_2: "",
+      timon_3: "",
+      nala_1: "",
+      nala_2: "",
+      nala_3: "",
+      scar: "",
+      cardinal: ""
+    }
   },
 
   channels: {

@@ -1,11 +1,25 @@
 ══════════════════════════════════════════════════════════════
 LA CARMINAUTE — GUIDE MEMBRES (économie, rangs, commandes)
-À poster sur Discord ; découper si besoin (limite ~2000 caractères / message).
+══════════════════════════════════════════════════════════════
+
+**Avant d’envoyer sur Discord**
+
+1. Ouvre `src/data/realServerIds.js` et remplis **`roles.rankRolePingIdsByKey`** avec l’ID de **chaque** rôle de rang (mode développeur → clic droit sur le rôle → Copier l’identifiant).
+2. Lance : `node scripts/render-annonce-membres.cjs --discord-only` et colle **toute** la sortie sur Discord (découpe si un message dépasse ~2000 caractères).
+
+**Notif Discord :** pour que chaque rôle déclenche vraiment une notification, les rôles de rang doivent être **mentionnables** le temps de l’envoi (ou message posté par un compte / bot avec les droits adaptés). Sinon la mention reste souvent **grisée** et peu de monde est notifié.
+
+*(Le fichier tel quel contient des marqueurs `REPLACE_…` : ils sont remplacés par le script. Tu peux aussi remplacer à la main `REPLACE_hyene_1` par l’ID numérique **à l’intérieur** de `<@&…>`.)*
+
 ══════════════════════════════════════════════════════════════
 
 Salut la Carminauté,
 
 Voici **tout ce qu’il faut savoir** sur l’économie du serveur et les **commandes réservées aux membres** (sans les outils staff / modération / admin).
+
+**— Pings des rôles de rang —**
+
+{{MEGA_PING_LINE}}
 
 ────────────────────────────────────────
 1) TROIS RESSOURCES À CONNAÎTRE
@@ -35,30 +49,30 @@ Voici **tout ce qu’il faut savoir** sur l’économie du serveur et les **comm
 • **Tirelire** (objet permanent) : bonus sur les gains **SC**.
 
 ────────────────────────────────────────
-3) TABLEAU DES RANGS (SIMBA POINTS)
+3) TABLEAU DES RANGS (SIMBA POINTS) + RÔLES
 ────────────────────────────────────────
 
-Ton **rang** = le palier le plus haut dont tu as au moins les SP minimum.
+Ton **rang** = le palier le plus haut dont tu as au moins les SP minimum. À chaque ligne : **mention du rôle Discord** (couleur de rang) + palier + SP requis.
 
-• **Hyène I** — 0 SP
-• **Hyène II** — 450 SP
-• **Hyène III** — 900 SP
-• **Pumba I** — 1 500 SP
-• **Pumba II** — 2 300 SP
-• **Pumba III** — 3 200 SP
-• **Shenzi I** — 4 300 SP
-• **Shenzi II** — 5 600 SP
-• **Shenzi III** — 7 100 SP
-• **Timon I** — 9 000 SP
-• **Timon II** — 11 200 SP
-• **Timon III** — 13 800 SP
-• **Nala I** — 17 000 SP
-• **Nala II** — 20 800 SP
-• **Nala III** — 25 400 SP
-• **Sarabi** — 40 000 SP  *(clé technique “scar” dans le bot)*
-• **Cardinal** — 100 000 SP
+• <@&REPLACE_hyene_1> — **Hyène I** — **0** SP
+• <@&REPLACE_hyene_2> — **Hyène II** — **450** SP
+• <@&REPLACE_hyene_3> — **Hyène III** — **900** SP
+• <@&REPLACE_pumba_1> — **Pumba I** — **1 500** SP
+• <@&REPLACE_pumba_2> — **Pumba II** — **2 300** SP
+• <@&REPLACE_pumba_3> — **Pumba III** — **3 200** SP
+• <@&REPLACE_shenzi_1> — **Shenzi I** — **4 300** SP
+• <@&REPLACE_shenzi_2> — **Shenzi II** — **5 600** SP
+• <@&REPLACE_shenzi_3> — **Shenzi III** — **7 100** SP
+• <@&REPLACE_timon_1> — **Timon I** — **9 000** SP
+• <@&REPLACE_timon_2> — **Timon II** — **11 200** SP
+• <@&REPLACE_timon_3> — **Timon III** — **13 800** SP
+• <@&REPLACE_nala_1> — **Nala I** — **17 000** SP
+• <@&REPLACE_nala_2> — **Nala II** — **20 800** SP
+• <@&REPLACE_nala_3> — **Nala III** — **25 400** SP
+• <@&REPLACE_scar> — **Sarabi** — **40 000** SP
+• <@&REPLACE_cardinal> — **Cardinal** — **100 000** SP
 
-Sur Discord, tu peux aussi avoir un **rôle de couleur** lié à ton rang si le staff a configuré les rôles automatiques.
+Le bot attribue **automatiquement** le rôle qui correspond à tes SP (un seul rôle de rang à la fois).
 
 ────────────────────────────────────────
 4) PERTE DE SP SI TU ES INACTIF (À PARTIR DE NALA)
