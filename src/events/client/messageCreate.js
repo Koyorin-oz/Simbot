@@ -24,6 +24,8 @@ const {
   normalizeForMatch,
   isAutoModExemptMember
 } = require("../../services/autoModService");
+const { shouldBlockLinksForMessage } = require("../../services/linkFilterService");
+const { sendAutoModDeletionNotice } = require("../../utils/autoModDeletionNotice");
 
 const AUTO_REPLY_COOLDOWN_MS = 15_000;
 const GEMINI_REPLY_MAX = 2000;
@@ -55,13 +57,32 @@ module.exports = {
         if (!isAutoModExemptMember(member)) {
           const norm = normalizeForMatch(message.content);
           if (findViolation(norm, payload)) {
+            const uid = message.author.id;
+            const ch = message.channel;
             await message.delete().catch(() => null);
+            await sendAutoModDeletionNotice(ch, uid, "word", client);
             return;
           }
         }
       }
     } catch (e) {
       logApiError("AUTOMOD_MSG", e, { maxDetailChars: 200 });
+    }
+
+    try {
+      if (config.linkFilter?.enabled) {
+        const member =
+          message.member || (await message.guild.members.fetch(message.author.id).catch(() => null));
+        if (shouldBlockLinksForMessage(message, config.linkFilter, member)) {
+          const uid = message.author.id;
+          const ch = message.channel;
+          await message.delete().catch(() => null);
+          await sendAutoModDeletionNotice(ch, uid, "link", client);
+          return;
+        }
+      }
+    } catch (e) {
+      logApiError("LINK_FILTER_MSG", e, { maxDetailChars: 200 });
     }
 
     const content = (message.content || "").toLowerCase();
