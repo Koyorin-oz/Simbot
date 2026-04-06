@@ -56,7 +56,7 @@ function buildEditModal() {
 
   const wordsInput = new TextInputBuilder()
     .setCustomId("automod_words")
-    .setLabel("Mots / expressions — ligne ou virgule")
+    .setLabel("Mots ou URL (cat. « LIEN autorise » = liens permis)")
     .setStyle(TextInputStyle.Paragraph)
     .setRequired(true)
     .setMaxLength(4000);

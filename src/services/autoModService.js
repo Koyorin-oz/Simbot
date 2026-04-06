@@ -2,13 +2,19 @@
  * Auto-modération configurable par serveur : catégories + listes de termes (JSON en base).
  */
 
-/** @typedef {{ enabled: boolean, categories: { id: number, name: string, terms: string[] }[] }} GuildAutoModPayload */
+/**
+ * @typedef {{
+ *   enabled: boolean,
+ *   categories: { id: number, name: string, terms: string[] }[],
+ *   linkAllowlistTerms: string[]
+ * }} GuildAutoModPayload
+ */
 
 const CACHE_MS = 20_000;
 /** @type {Map<string, { at: number, payload: GuildAutoModPayload }>} */
 const cache = new Map();
 
-const MAX_WORD_LEN = 80;
+const MAX_WORD_LEN = 120;
 const MAX_WORDS_PER_CATEGORY = 400;
 const MAX_CATEGORIES_PER_GUILD = 40;
 
@@ -57,6 +63,23 @@ function safeParseWordsJson(json) {
 }
 
 /**
+ * Catégorie spéciale : liste **blanche** de motifs d’URL (domaines, morceaux de lien).
+ * Nom reconnu sans tenir compte des accents / casse (ex. « LIEN autorise », « Liens autorisés »).
+ * @param {string} name
+ */
+function isLinkAllowlistCategoryName(name) {
+  const n = normalizeForMatch(String(name || "").trim());
+  if (!n) return false;
+  return (
+    n === "lien autorise" ||
+    n === "liens autorise" ||
+    n === "lien autorises" ||
+    n === "liens autorises" ||
+    n === "liens autorisees"
+  );
+}
+
+/**
  * @param {import("@prisma/client").PrismaClient} prisma
  * @param {string} guildId
  * @returns {Promise<GuildAutoModPayload>}
@@ -75,13 +98,20 @@ async function getGuildAutoModPayload(prisma, guildId) {
     terms: safeParseWordsJson(r.words)
   }));
 
+  const catsClean = categories.map((c) => ({
+    id: c.id,
+    name: c.name,
+    terms: c.terms.filter(Boolean)
+  }));
+
+  const linkAllowlistTerms = catsClean
+    .filter((c) => isLinkAllowlistCategoryName(c.name))
+    .flatMap((c) => c.terms);
+
   const payload = {
     enabled: Boolean(guildRow?.enabled),
-    categories: categories.map((c) => ({
-      id: c.id,
-      name: c.name,
-      terms: c.terms.filter(Boolean)
-    }))
+    categories: catsClean,
+    linkAllowlistTerms
   };
 
   cache.set(guildId, { at: now, payload });
@@ -96,6 +126,7 @@ async function getGuildAutoModPayload(prisma, guildId) {
 function findViolation(normalizedMessage, payload) {
   if (!payload.enabled || !normalizedMessage) return null;
   for (const cat of payload.categories) {
+    if (isLinkAllowlistCategoryName(cat.name)) continue;
     for (const term of cat.terms) {
       const nt = normalizeForMatch(term);
       if (!nt) continue;
@@ -201,6 +232,7 @@ module.exports = {
   setGuildAutoModEnabled,
   invalidateGuildCache,
   isAutoModExemptMember,
+  isLinkAllowlistCategoryName,
   MAX_CATEGORIES_PER_GUILD,
   MAX_WORDS_PER_CATEGORY
 };

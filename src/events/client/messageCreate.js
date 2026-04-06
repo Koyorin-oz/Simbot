@@ -51,9 +51,10 @@ module.exports = {
 
     try {
       const payload = await getGuildAutoModPayload(client.prisma, message.guild.id);
+      const member =
+        message.member || (await message.guild.members.fetch(message.author.id).catch(() => null));
+
       if (payload.enabled && payload.categories.length > 0 && String(message.content || "").trim()) {
-        const member =
-          message.member || (await message.guild.members.fetch(message.author.id).catch(() => null));
         if (!isAutoModExemptMember(member)) {
           const norm = normalizeForMatch(message.content);
           if (findViolation(norm, payload)) {
@@ -65,24 +66,17 @@ module.exports = {
           }
         }
       }
-    } catch (e) {
-      logApiError("AUTOMOD_MSG", e, { maxDetailChars: 200 });
-    }
 
-    try {
-      if (config.linkFilter?.enabled) {
-        const member =
-          message.member || (await message.guild.members.fetch(message.author.id).catch(() => null));
-        if (shouldBlockLinksForMessage(message, config.linkFilter, member)) {
-          const uid = message.author.id;
-          const ch = message.channel;
-          await message.delete().catch(() => null);
-          await sendAutoModDeletionNotice(ch, uid, "link", client);
-          return;
-        }
+      const bypassRole = String(config.linkPolicy?.bypassRoleId || "").trim();
+      if (shouldBlockLinksForMessage(message, member, payload, bypassRole)) {
+        const uid = message.author.id;
+        const ch = message.channel;
+        await message.delete().catch(() => null);
+        await sendAutoModDeletionNotice(ch, uid, "link", client);
+        return;
       }
     } catch (e) {
-      logApiError("LINK_FILTER_MSG", e, { maxDetailChars: 200 });
+      logApiError("AUTOMOD_OR_LINK_MSG", e, { maxDetailChars: 200 });
     }
 
     const content = (message.content || "").toLowerCase();

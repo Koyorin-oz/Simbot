@@ -239,24 +239,9 @@ module.exports = {
   },
 
   /**
-   * Filtre des liens : autorisés uniquement dans les salons listés ou sous la catégorie indiquée.
-   * Le rôle bypass peut poster un lien partout. Désactiver : LINK_FILTER_ENABLED=0
+   * Invitations Discord : bloquées partout sauf pour ce rôle (liens autorisés ailleurs gérés par la catégorie « LIEN autorise » dans /settings-auto-moderation).
    */
-  linkFilter: {
-    guildId: String(process.env.LINK_FILTER_GUILD_ID || MAIN_GUILD_ID).trim(),
-    enabled: String(process.env.LINK_FILTER_ENABLED ?? "1").trim() !== "0",
-    allowedChannelIds: String(
-      process.env.LINK_FILTER_ALLOWED_CHANNEL_IDS ||
-        "735644918789439496,1454870112141050099"
-    )
-      .split(/[,\s]+/)
-      .map((s) => s.trim())
-      .filter(Boolean),
-    allowedCategoryId: String(
-      process.env.LINK_FILTER_ALLOWED_CATEGORY_ID || "973537327030886460"
-    ).trim(),
-    bypassRoleId: String(
-      process.env.LINK_FILTER_BYPASS_ROLE_ID || "740999121812586567"
-    ).trim()
+  linkPolicy: {
+    bypassRoleId: String(process.env.LINK_BYPASS_ROLE_ID || "740999121812586567").trim()
   }
 };

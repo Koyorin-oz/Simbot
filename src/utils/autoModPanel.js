@@ -29,7 +29,9 @@ function buildAutoModEmbed(payload) {
     .setTitle("Auto-modération")
     .setDescription(
       [
-        "Les messages contenant un des termes configurés sont **supprimés** automatiquement.",
+        "• **Mots** : chaque catégorie = liste **noire** (mot détecté → message supprimé).",
+        "• **LIEN autorise** : nom **exact de catégorie** réservé = liste **blanche** d’URL (domaines, bouts de lien). Avec l’auto-mod **activée**, tout autre lien est bloqué.",
+        "• **Invitations Discord** (`discord.gg`, `/invite/`) : **toujours** bloquées, sauf pour le **rôle bypass** (config / `LINK_BYPASS_ROLE_ID`).",
         "",
         "**Statut :** " + (payload.enabled ? "activé" : "désactivé"),
         `**Catégories :** ${n} · **Termes au total :** ${totalTerms}`,
@@ -38,7 +40,9 @@ function buildAutoModEmbed(payload) {
         more
       ].join("\n")
     )
-    .setFooter({ text: "Même principe que DraftBot : listes par thème, séparateurs virgule ou ligne." })
+    .setFooter({
+      text: "Catégorie spéciale : LIEN autorise (ou Liens autorisés). Séparateurs : virgule ou ligne."
+    })
     .setTimestamp();
 }
 
