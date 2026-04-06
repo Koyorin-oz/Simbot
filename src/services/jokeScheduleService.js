@@ -5,7 +5,8 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("
 const JOKES_PATH = path.join(__dirname, "..", "data", "darkJokes.json");
 const STATE_PATH = path.join(__dirname, "..", "data", "jokeRotationState.json");
 
-const DEFAULT_CHANNEL_ID = "454870112141050099";
+/** Défaut corrigé (ancien ID était une erreur de frappe → salon introuvable). Surcharge : `JOKE_CHANNEL_ID` dans `.env`. */
+const DEFAULT_CHANNEL_ID = "1454870112141050099";
 const DEFAULT_HOURS = [10, 22];
 
 function loadJokes() {
