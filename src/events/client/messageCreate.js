@@ -18,6 +18,12 @@ const {
 const { generateGeminiPingReply, formatGeminiErrorForUser } = require("../../services/geminiService");
 const { logApiError } = require("../../utils/botLogger");
 const { handlePrefixSnipeEdit } = require("../../utils/prefixSnipeEditHandler");
+const {
+  getGuildAutoModPayload,
+  findViolation,
+  normalizeForMatch,
+  isAutoModExemptMember
+} = require("../../services/autoModService");
 
 const AUTO_REPLY_COOLDOWN_MS = 15_000;
 const GEMINI_REPLY_MAX = 2000;
@@ -40,6 +46,23 @@ module.exports = {
     }
     if (isFrozen()) return;
     if (message.author.bot) return;
+
+    try {
+      const payload = await getGuildAutoModPayload(client.prisma, message.guild.id);
+      if (payload.enabled && payload.categories.length > 0 && String(message.content || "").trim()) {
+        const member =
+          message.member || (await message.guild.members.fetch(message.author.id).catch(() => null));
+        if (!isAutoModExemptMember(member)) {
+          const norm = normalizeForMatch(message.content);
+          if (findViolation(norm, payload)) {
+            await message.delete().catch(() => null);
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      logApiError("AUTOMOD_MSG", e, { maxDetailChars: 200 });
+    }
 
     const content = (message.content || "").toLowerCase();
     const normalized = content.normalize("NFD").replace(/[\u0300-\u036f]/g, "");

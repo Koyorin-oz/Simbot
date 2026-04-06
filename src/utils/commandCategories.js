@@ -43,7 +43,8 @@ const MODERATION_COMMANDS = new Set([
   "effacer-message",
   "salon-verrou",
   "profil-moderateur",
-  "sanction-lister"
+  "sanction-lister",
+  "settings-auto-moderation"
 ]);
 
 function classifyCommand(commandName) {

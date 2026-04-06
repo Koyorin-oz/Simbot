@@ -129,3 +129,24 @@ model IaPingDedup {
 
   @@index([createdAt])
 }
+
+/** Auto-modération par serveur : interrupteur global. */
+model AutoModGuild {
+  guildId   String   @id
+  enabled   Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+}
+
+/**
+ * Listes de termes par catégorie (ex. Raciste, Insultes). `words` = JSON tableau de chaînes.
+ */
+model AutoModCategory {
+  id        Int      @id @default(autoincrement())
+  guildId   String
+  name      String
+  words     String   @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([guildId])
+}

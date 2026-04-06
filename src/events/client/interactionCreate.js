@@ -57,6 +57,7 @@ const {
 } = require("../../services/staffCommandPermissionsService");
 const { APPEAL_FORM_URL } = require("../../utils/ticketPanels");
 const { getGuildLeaderboardRank } = require("../../services/leaderboardRankService");
+const { handleAutoModInteraction } = require("../../interactions/autoModInteractions");
 
 const OWNER_BYPASS_ID = getCommandOwnerBypassUserId();
 const VOTE_ALLOWED_ROLE_ID = "1401908829339390002";
@@ -280,7 +281,11 @@ module.exports = {
       return;
     }
 
-    if (interaction.isButton() || interaction.isModalSubmit()) {
+    if (
+      interaction.isButton() ||
+      interaction.isModalSubmit() ||
+      (interaction.isStringSelectMenu() && interaction.customId === "automod:del")
+    ) {
       if (isFrozen()) {
         if (!interaction.replied && !interaction.deferred) {
           await interaction.reply({
@@ -296,6 +301,11 @@ module.exports = {
         return false;
       });
       if (handled) return;
+      const autoModHandled = await handleAutoModInteraction(client, interaction).catch((err) => {
+        logApiError("AUTOMOD_INTERACTION", err, { maxDetailChars: 400 });
+        return false;
+      });
+      if (autoModHandled) return;
     }
 
     if (interaction.isButton() && interaction.customId?.startsWith("blague_reveal:")) {
