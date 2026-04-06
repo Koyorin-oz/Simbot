@@ -2,6 +2,11 @@ const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
 const ms = require("ms");
 const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
 const { buildSanctionEmbed } = require("../../utils/sanctionEmbed");
+const {
+  buildPostSanctionDmEmbed,
+  moderatorLabelForDm,
+  trySendSanctionDm
+} = require("../../utils/sanctionDmNotice");
 const { deferPublic } = require("../../utils/slashDefer");
 const { assertCanSanctionMember, formatBotHierarchyBlockReason } = require("../../utils/staffSanctionHierarchy");
 
@@ -12,7 +17,10 @@ module.exports = {
     .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .addUserOption(o => o.setName("membre").setDescription("Membre cible").setRequired(true))
     .addStringOption(o => o.setName("duree").setDescription("Ex: 10m, 1h").setRequired(true))
-    .addStringOption(o => o.setName("raison").setDescription("Raison").setRequired(false)),
+    .addStringOption(o => o.setName("raison").setDescription("Raison").setRequired(false))
+    .addBooleanOption(o =>
+      o.setName("anonyme").setDescription("Masquer le modérateur dans le MP à la cible").setRequired(false)
+    ),
   async execute(client, interaction) {
     await deferPublic(interaction);
 
@@ -20,6 +28,7 @@ module.exports = {
     const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
     const durationRaw = interaction.options.getString("duree", true);
     const reason = interaction.options.getString("raison") || "Aucune raison";
+    const anonyme = interaction.options.getBoolean("anonyme") === true;
     const duration = ms(durationRaw);
     if (!member) return interaction.editReply({ content: "Membre introuvable sur ce serveur." });
     const hierarchyFail = assertCanSanctionMember(
@@ -57,6 +66,16 @@ module.exports = {
       }
     });
     const endsAt = new Date(Date.now() + duration);
+    const byDm = moderatorLabelForDm(interaction, anonyme);
+    const dmEmbed = buildPostSanctionDmEmbed({
+      guildName: interaction.guild.name,
+      type: "MUTE",
+      reason,
+      byLabel: byDm,
+      endsAt
+    });
+    const dmOk = await trySendSanctionDm(member.user, dmEmbed);
+
     const embed = buildSanctionEmbed({
       title: interaction.guild.name,
       targetLabel: `${member} (${member.user.tag})`,
@@ -64,6 +83,9 @@ module.exports = {
       moderatorLabel: `${interaction.user} (${interaction.user.tag})`,
       endsAt
     });
-    await interaction.editReply({ embeds: [embed] });
+    await interaction.editReply({
+      content: dmOk ? "MP de notification envoyé à la cible." : "MP impossible (DM fermés ou refusés), mute appliqué.",
+      embeds: [embed]
+    });
   }
 };
