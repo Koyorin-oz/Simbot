@@ -67,8 +67,7 @@ module.exports = {
         }
       }
 
-      const bypassRole = String(config.linkPolicy?.bypassRoleId || "").trim();
-      if (shouldBlockLinksForMessage(message, member, payload, bypassRole)) {
+      if (shouldBlockLinksForMessage(message, member, payload, config.linkPolicy)) {
         const uid = message.author.id;
         const ch = message.channel;
         await message.delete().catch(() => null);

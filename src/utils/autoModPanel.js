@@ -30,8 +30,8 @@ function buildAutoModEmbed(payload) {
     .setDescription(
       [
         "• **Mots** : chaque catégorie = liste **noire** (mot détecté → message supprimé).",
-        "• **LIEN autorise** : nom **exact de catégorie** réservé = liste **blanche** d’URL (domaines, bouts de lien). Avec l’auto-mod **activée**, tout autre lien est bloqué.",
-        "• **Invitations Discord** (`discord.gg`, `/invite/`) : **toujours** bloquées, sauf pour le **rôle bypass** (config / `LINK_BYPASS_ROLE_ID`).",
+        "• **Liens** (hors liste noire mots) : **Tenor** + **cadeaux Discord** partout ; **YouTube / TikTok / Instagram** seulement dans le salon média (config) ; **invites serveur** bloquées ; **2 rôles bypass** = aucune limite. Détail : `config.linkPolicy` + `.env`.",
+        "• **LIEN autorise** (optionnel) : motifs **en plus** autorisés **partout** (domaines extra).",
         "",
         "**Statut :** " + (payload.enabled ? "activé" : "désactivé"),
         `**Catégories :** ${n} · **Termes au total :** ${totalTerms}`,
@@ -41,7 +41,7 @@ function buildAutoModEmbed(payload) {
       ].join("\n")
     )
     .setFooter({
-      text: "Catégorie spéciale : LIEN autorise (ou Liens autorisés). Séparateurs : virgule ou ligne."
+      text: "Mots : virgule ou ligne. LIEN autorise = bonus global (optionnel)."
     })
     .setTimestamp();
 }

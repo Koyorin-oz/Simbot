@@ -1,6 +1,9 @@
 /**
- * Liens : invitations Discord toujours bloquées (sauf rôle bypass).
- * Autres URLs : si l’auto-mod est activée, seuls les motifs listés dans la catégorie « LIEN autorise » passent.
+ * Liens : règles serveur codées + liste blanche optionnelle (catégorie « LIEN autorise »).
+ * - Tenor, cadeaux Discord : partout (tout le monde).
+ * - YouTube, TikTok, Instagram : uniquement dans `linkPolicy.mediaChannelId` (fils inclus).
+ * - Invitations serveur Discord : bloquées sauf rôles bypass.
+ * - Autres URLs : bloquées.
  */
 
 const { normalizeForMatch } = require("./autoModService");
@@ -41,19 +44,51 @@ function snippetIsDiscordInvite(raw) {
 
 /**
  * @param {import("discord.js").GuildMember | null} member
- * @param {string} bypassRoleId
+ * @param {string[]} bypassRoleIds
  */
-function hasLinkBypassRole(member, bypassRoleId) {
-  if (!member || !bypassRoleId) return false;
-  return Boolean(member.roles?.cache?.has(bypassRoleId));
+function hasAnyLinkBypassRole(member, bypassRoleIds) {
+  if (!member || !bypassRoleIds?.length) return false;
+  for (const id of bypassRoleIds) {
+    if (id && member.roles?.cache?.has(id)) return true;
+  }
+  return false;
+}
+
+function isTenor(norm) {
+  return norm.includes("tenor.com");
+}
+
+function isDiscordGift(norm) {
+  return (
+    norm.includes("discord.gift") ||
+    norm.includes("discord.com/gifting") ||
+    norm.includes("discordapp.com/gifting")
+  );
+}
+
+function isYoutube(norm) {
+  return norm.includes("youtube.com") || norm.includes("youtu.be");
+}
+
+function isTiktok(norm) {
+  return norm.includes("tiktok.com");
+}
+
+function isInstagram(norm) {
+  return norm.includes("instagram.com") || norm.includes("instagr.am");
+}
+
+/** YT / TikTok / IG : autorisés seulement dans le salon média. */
+function isMediaChannelOnlyLink(norm) {
+  return isYoutube(norm) || isTiktok(norm) || isInstagram(norm);
 }
 
 /**
- * @param {string} normalizedSnippet URL / morceau déjà normalisé (accents retirés, minuscules)
+ * @param {string} normalizedSnippet
  * @param {string[]} allowlistTerms
  */
-function nonDiscordLinkMatchesAllowlist(normalizedSnippet, allowlistTerms) {
-  for (const term of allowlistTerms) {
+function matchesExtraGlobalAllowlist(normalizedSnippet, allowlistTerms) {
+  for (const term of allowlistTerms || []) {
     const nt = normalizeForMatch(term);
     if (nt && normalizedSnippet.includes(nt)) return true;
   }
@@ -61,29 +96,62 @@ function nonDiscordLinkMatchesAllowlist(normalizedSnippet, allowlistTerms) {
 }
 
 /**
+ * Tenor, Discord Gift, ou motifs catégorie « LIEN autorise ».
+ */
+function isAllowedLinkEverywhere(norm, linkAllowlistTerms) {
+  if (isTenor(norm) || isDiscordGift(norm)) return true;
+  return matchesExtraGlobalAllowlist(norm, linkAllowlistTerms);
+}
+
+/**
+ * @param {import("discord.js").Channel} channel
+ * @param {string} mediaChannelId
+ */
+function isInMediaLinkChannel(channel, mediaChannelId) {
+  if (!channel || !mediaChannelId) return false;
+  if (channel.id === mediaChannelId) return true;
+  if (typeof channel.isThread === "function" && channel.isThread() && channel.parentId === mediaChannelId) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * @param {import("discord.js").Message} message
  * @param {import("discord.js").GuildMember | null} member
- * @param {{ enabled: boolean, linkAllowlistTerms: string[] }} payload
- * @param {string} bypassRoleId
+ * @param {{ linkAllowlistTerms: string[] }} payload
+ * @param {{ bypassRoleIds: string[], mediaChannelId: string }} linkPolicy
  */
-function shouldBlockLinksForMessage(message, member, payload, bypassRoleId) {
-  if (hasLinkBypassRole(member, bypassRoleId)) return false;
+function shouldBlockLinksForMessage(message, member, payload, linkPolicy) {
+  const bypassRoleIds = linkPolicy?.bypassRoleIds || [];
+  if (hasAnyLinkBypassRole(member, bypassRoleIds)) return false;
+
   const content = message.content || "";
   if (!messageContainsLink(content)) return false;
 
   const snippets = extractLinkSnippets(content);
+  const mediaChannelId = String(linkPolicy?.mediaChannelId || "").trim();
+  const extras = payload?.linkAllowlistTerms || [];
+
   for (const raw of snippets) {
     const norm = normalizeForMatch(raw);
 
-    if (snippetIsDiscordInvite(raw) || snippetIsDiscordInvite(norm)) {
+    if (snippetIsDiscordInvite(raw)) {
       return true;
     }
 
-    if (payload.enabled) {
-      if (!nonDiscordLinkMatchesAllowlist(norm, payload.linkAllowlistTerms || [])) {
-        return true;
-      }
+    if (isAllowedLinkEverywhere(norm, extras)) {
+      continue;
     }
+
+    if (isMediaChannelOnlyLink(norm)) {
+      if (isInMediaLinkChannel(message.channel, mediaChannelId)) {
+        continue;
+      }
+      return true;
+    }
+
+    return true;
   }
 
   return false;
@@ -93,6 +161,6 @@ module.exports = {
   extractLinkSnippets,
   messageContainsLink,
   snippetIsDiscordInvite,
-  hasLinkBypassRole,
+  hasAnyLinkBypassRole,
   shouldBlockLinksForMessage
 };

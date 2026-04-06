@@ -239,9 +239,22 @@ module.exports = {
   },
 
   /**
-   * Invitations Discord : bloquées partout sauf pour ce rôle (liens autorisés ailleurs gérés par la catégorie « LIEN autorise » dans /settings-auto-moderation).
+   * Liens : YouTube / TikTok / Instagram uniquement dans `mediaChannelId` ; Tenor + cadeaux Discord partout.
+   * Invitations serveur (`discord.gg`, `/invite/`) bloquées sauf rôles bypass.
+   * `LINK_BYPASS_ROLE_IDS` = liste séparée par virgules (sinon deux rôles par défaut + `LINK_BYPASS_ROLE_ID` seul si défini).
    */
-  linkPolicy: {
-    bypassRoleId: String(process.env.LINK_BYPASS_ROLE_ID || "740999121812586567").trim()
-  }
+  linkPolicy: (() => {
+    const fromMulti = String(process.env.LINK_BYPASS_ROLE_IDS || "")
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const fromSingle = String(process.env.LINK_BYPASS_ROLE_ID || "").trim();
+    const defaultPair = ["740999121812586567", "735585964386418699"];
+    const bypassRoleIds =
+      fromMulti.length > 0 ? fromMulti : fromSingle ? [fromSingle] : defaultPair;
+    return {
+      bypassRoleIds,
+      mediaChannelId: String(process.env.LINK_MEDIA_CHANNEL_ID || "735644918789439496").trim()
+    };
+  })()
 };
