@@ -227,6 +227,109 @@ function overwritesVoiceLobby(guild, botUserId) {
   ];
 }
 
+function normalizeChannelNameForMatch(s) {
+  return String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+}
+
+function isLikelyLobbyVoiceChannel(channel) {
+  if (!channel?.isVoiceBased?.()) return false;
+  const n = normalizeChannelNameForMatch(channel.name);
+  return n.includes("creer votre salon") || n.includes("creer ton salon");
+}
+
+/**
+ * Place le vocal d'accueil « Créer votre salon » dans la categorie vocaux (ID fixe realServerIds / config),
+ * met a jour channelSetup.json et la config runtime. Ne choisit jamais un salon prive au hasard (heuristique sur le nom).
+ * @returns {Promise<{ ok: true, lobby: import("discord.js").VoiceChannel, category: import("discord.js").CategoryChannel, created: boolean } | { ok: false, error: string }>}
+ */
+async function ensurePrivateVoiceLobbyInCategory(guild) {
+  const botId = guild.client.user.id;
+  const me = await guild.members.fetchMe();
+  if (!me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
+    return { ok: false, error: "Le bot doit avoir la permission **Gerer les salons**." };
+  }
+
+  const categoryId = String(
+    realServerIds?.categories?.voiceCategoryId || config.privateRoom?.voiceCategoryId || ""
+  ).trim();
+  if (!categoryId) {
+    return { ok: false, error: "Aucun voiceCategoryId configure (realServerIds / config)." };
+  }
+
+  await guild.fetch().catch(() => null);
+
+  const parent = await guild.channels.fetch(categoryId).catch(() => null);
+  if (!parent || parent.type !== ChannelType.GuildCategory) {
+    return {
+      ok: false,
+      error: `Categorie vocale introuvable sur ce serveur : \`${categoryId}\`. Verifie l'ID ou les droits du bot.`
+    };
+  }
+
+  const setup = readGuildSetup(guild.id) || {};
+  const wantedName = CH.lobby;
+  const wantedNorm = normalizeChannelNameForMatch(wantedName);
+
+  /** @type {import("discord.js").VoiceBasedChannel | null} */
+  let lobby = null;
+
+  const voicesInCat = guild.channels.cache.filter(
+    (c) => c.type === ChannelType.GuildVoice && c.parentId === parent.id
+  );
+
+  for (const c of voicesInCat.values()) {
+    if (normalizeChannelNameForMatch(c.name) === wantedNorm) {
+      lobby = c;
+      break;
+    }
+  }
+  if (!lobby) {
+    for (const c of voicesInCat.values()) {
+      if (isLikelyLobbyVoiceChannel(c)) {
+        lobby = c;
+        break;
+      }
+    }
+  }
+
+  if (!lobby && setup.lobbyChannelId) {
+    const ch = await guild.channels.fetch(setup.lobbyChannelId).catch(() => null);
+    if (ch?.isVoiceBased?.() && isLikelyLobbyVoiceChannel(ch)) {
+      lobby = ch;
+    }
+  }
+
+  let created = false;
+  if (!lobby) {
+    lobby = await guild.channels.create({
+      name: wantedName,
+      type: ChannelType.GuildVoice,
+      parent: parent.id,
+      permissionOverwrites: overwritesVoiceLobby(guild, botId),
+      reason: "CarminaBot — /voc-panel : vocal d'accueil"
+    });
+    created = true;
+  } else {
+    if (lobby.parentId !== parent.id) {
+      await lobby.setParent(parent.id, { lockPermissions: false }).catch(() => null);
+    }
+    if (lobby.name !== wantedName) {
+      await lobby.setName(wantedName).catch(() => null);
+    }
+    await lobby.permissionOverwrites.set(overwritesVoiceLobby(guild, botId)).catch(() => null);
+  }
+
+  setup.voiceCategoryId = parent.id;
+  setup.lobbyChannelId = lobby.id;
+  writeGuildSetup(guild.id, setup);
+  applySetupToRuntimeConfig(setup);
+
+  return { ok: true, lobby, category: parent, created };
+}
+
 /** Membres vérifiés : lire + voter ; pas d’envoi ni réactions. Staff : écriture (rôle env). */
 function overwritesSuggestionsChannel(guild, botUserId, verifiedRoleId, staffRoleId, warnings) {
   const botAllow = [
@@ -764,8 +867,12 @@ async function bootstrapChannels(guild, opts = {}) {
   }
 
   if (modules.panel_voc) {
-    let catVoc =
-      setup.voiceCategoryId && (await guild.channels.fetch(setup.voiceCategoryId).catch(() => null));
+    const preferredCatId =
+      setup.voiceCategoryId ||
+      realServerIds?.categories?.voiceCategoryId ||
+      config.privateRoom?.voiceCategoryId ||
+      null;
+    let catVoc = preferredCatId ? await guild.channels.fetch(preferredCatId).catch(() => null) : null;
     if (!catVoc || catVoc.type !== ChannelType.GuildCategory) {
       delete setup.voiceCategoryId;
       delete setup.lobbyChannelId;
@@ -776,9 +883,10 @@ async function bootstrapChannels(guild, opts = {}) {
         reason
       });
       setup.voiceCategoryId = catVoc.id;
-      lines.push("**Categorie VOC** creee.");
+      lines.push("**Categorie VOC** creee (ID fixe introuvable sur ce serveur).");
     } else {
-      lines.push("**Categorie VOC** : deja en config.");
+      setup.voiceCategoryId = catVoc.id;
+      lines.push("**Categorie VOC** : categorie existante (meme que les vocaux prives).");
     }
 
     let createdVoc = false;
@@ -896,6 +1004,7 @@ module.exports = {
   bootstrapChannels,
   applySetupToRuntimeConfig,
   applyRealServerIdsToGuildSetup,
+  ensurePrivateVoiceLobbyInCategory,
   ensureSuggestionsChannel,
   removeSalonSetup,
   SETUP_PATH,

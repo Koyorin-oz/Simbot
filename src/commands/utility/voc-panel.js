@@ -1,57 +1,56 @@
-const {SlashCommandBuilder, PermissionFlagsBits, MessageFlags} = require("discord.js");
-const config = require("../../config");
-const { buildPanelPayload } = require("../../services/privateRoomService");
+const {
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+  MessageFlags
+} = require("discord.js");
+const { ensurePrivateVoiceLobbyInCategory } = require("../../services/channelBootstrapService");
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("voc-panel")
-    .setDescription("Ouvre le panneau des salons vocaux prives (depuis le salon vocal d'accueil)")
-    .setDMPermission(false),
+    .setDescription(
+      "Configure le vocal « Creer votre salon » dans la categorie vocaux (meme que les vocaux prives)"
+    )
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
   async execute(client, interaction) {
-    const pr = config.privateRoom;
-    if (!pr?.enabled) {
-      await interaction.reply({ content: "Les salons vocaux prives sont desactives sur ce serveur.", flags: MessageFlags.Ephemeral });
+    if (!interaction.inGuild()) {
+      await interaction.reply({
+        content: "Cette commande ne s'utilise que sur un serveur.",
+        flags: MessageFlags.Ephemeral
+      });
       return;
     }
 
     const member = interaction.member;
-    const vcId = member?.voice?.channelId;
-    if (!vcId || String(vcId) !== String(pr.lobbyChannelId)) {
+    if (!member?.permissions?.has?.(PermissionFlagsBits.ManageChannels)) {
       await interaction.reply({
-        content: `Tu dois etre dans le vocal **Creer votre salon** : <#${pr.lobbyChannelId}>`,
+        content: "Il te faut la permission **Gerer les salons**.",
         flags: MessageFlags.Ephemeral
       });
       return;
     }
 
-    const ch = interaction.channel;
-    if (!ch?.isTextBased?.()) {
-      await interaction.reply({ content: "Utilise cette commande dans un salon texte du serveur.", flags: MessageFlags.Ephemeral });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const result = await ensurePrivateVoiceLobbyInCategory(interaction.guild);
+    if (!result.ok) {
+      await interaction.editReply({ content: result.error });
       return;
     }
 
-    const panelOnly = pr.panelTextChannelId;
-    if (panelOnly && String(ch.id) !== String(panelOnly)) {
-      await interaction.reply({
-        content: `Utilise **/voc-panel** dans le salon dédié : <#${panelOnly}>.`,
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
-
-    const me = interaction.guild.members.me;
-    if (!ch.permissionsFor(me).has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) {
-      await interaction.reply({
-        content: "Je ne peux pas envoyer de message dans ce salon. Choisis-en un autre ou ajuste mes permissions.",
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
-
-    const payload = await buildPanelPayload(client, client.prisma, member, { pingUser: true });
-    await interaction.reply({
-      ...payload,
-      allowedMentions: { users: [member.id] }
+    const { lobby, category, created } = result;
+    const part = created
+      ? "Le vocal d'accueil a ete **cree** dans cette categorie."
+      : "Le vocal d'accueil est **pret** (deja present ou retrouve par son nom).";
+    await interaction.editReply({
+      content: [
+        part,
+        `**Categorie** : ${category.name} (\`${category.id}\`)`,
+        `**Lobby** : ${lobby} (\`${lobby.id}\`)`,
+        "",
+        "Les membres rejoignent ce vocal : le bot cree leur salon prive **dans la meme categorie** et poste le panneau dans le chat de la voc."
+      ].join("\n")
     });
   }
 };
