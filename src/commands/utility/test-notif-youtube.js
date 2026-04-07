@@ -25,7 +25,7 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName("test-notif-youtube")
     .setDescription(
-      "Test : envoie une notif (format reel) avec la derniere video d une chaine configuree"
+      "Test : envoie ici (ce salon) une notif comme la vraie, avec la derniere video RSS"
     )
     .setDMPermission(false)
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
@@ -42,9 +42,10 @@ module.exports = {
     ),
   async execute(client, interaction) {
     const yn = config.youtubeNotify;
-    if (!yn?.channelId) {
+
+    if (!interaction.inGuild() || !interaction.channel?.isTextBased?.()) {
       await interaction.reply({
-        content: "youtubeNotify.channelId n est pas configure.",
+        content: "Utilise cette commande dans un salon texte du serveur.",
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -52,14 +53,7 @@ module.exports = {
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    if (!interaction.guildId || String(interaction.guildId) !== String(yn.guildId)) {
-      await interaction.editReply({
-        content: `Cette commande ne fonctionne que sur la guilde configuree pour les notifs YouTube (\`${yn.guildId}\`).`
-      });
-      return;
-    }
-
-    const resolved = await resolveYoutubeNotifySources(yn.sources || []);
+    const resolved = await resolveYoutubeNotifySources(yn?.sources || []);
     if (!resolved.length) {
       await interaction.editReply({ content: "Aucune chaine YouTube resolvable dans la config." });
       return;
@@ -88,11 +82,7 @@ module.exports = {
     }
 
     const guild = interaction.guild;
-    const ch = await guild.channels.fetch(yn.channelId).catch(() => null);
-    if (!ch?.isTextBased?.()) {
-      await interaction.editReply({ content: `Salon notif introuvable : ${yn.channelId}` });
-      return;
-    }
+    const ch = interaction.channel;
 
     const me = guild.members.me;
     const perms = ch.permissionsFor(me);
@@ -104,7 +94,7 @@ module.exports = {
     ) {
       await interaction.editReply({
         content:
-          "Le bot doit pouvoir envoyer embed, boutons et **Mentionner @everyone** dans le salon notif (parametres du salon > permissions du bot)."
+          "Le bot doit pouvoir envoyer embed, boutons et **Mentionner @everyone** dans **ce salon** (permissions du bot sur ce salon)."
       });
       return;
     }
@@ -119,7 +109,7 @@ module.exports = {
     }
 
     await interaction.editReply({
-      content: `Notif de **test** envoyee pour **${source.displayName}** (derniere video du flux) : ${msg.url}\nTu peux supprimer le message dans <#${yn.channelId}> si besoin.`
+      content: `Notif de **test** envoyee pour **${source.displayName}** dans ce salon : ${msg.url}\nTu peux supprimer le message si besoin.`
     });
   }
 };
