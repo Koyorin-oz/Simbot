@@ -16,12 +16,17 @@ function resolveFlexMascotAttachment() {
 }
 
 module.exports = {
-  data: new SlashCommandBuilder().setName("flex").setDescription("Flex un bon coup avec un GIF"),
+  data: new SlashCommandBuilder()
+    .setName("flex")
+    .setDescription("Flex un bon coup avec un GIF")
+    /** Aucune permission Discord requise : tout membre qui voit le salon autorisé peut l’utiliser. */
+    .setDefaultMemberPermissions(null)
+    .setDMPermission(false),
   async execute(client, interaction) {
     if (!ALLOWED_CHANNEL_IDS.has(interaction.channelId)) {
       await interaction.reply({
         content:
-          "Commande utilisable uniquement dans <#1357819532416123071>, <#735810600348680212> ou <#1486780068121546882>.",
+          "Utilise **/flex** uniquement dans <#1357819532416123071>, <#735810600348680212> ou <#1486780068121546882> (tout le monde peut le faire dans ces salons).",
         flags: MessageFlags.Ephemeral
       });
       return;

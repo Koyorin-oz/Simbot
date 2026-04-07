@@ -102,6 +102,8 @@ function hasModerationSlashAccess(interaction) {
 
 function hasRequiredCommandPermissions(interaction, command) {
   if (interaction.user?.id === OWNER_BYPASS_ID) return true;
+  /** Pas de filtre staff : la commande vérifie seulement le salon dans son execute. */
+  if (interaction.commandName === "flex") return true;
   const cat = classifyCommand(interaction.commandName);
   if (cat === "dev" || cat === "admin") {
     return hasAdminDevSlashAccess(interaction);
@@ -220,7 +222,8 @@ module.exports = {
       }
       const visibility = getGuildVisibility(interaction.guildId);
       const category = classifyCommand(interaction.commandName);
-      if (visibility[category] && !hasAdminAccess(interaction)) {
+      const flexBypassVisibility = interaction.commandName === "flex";
+      if (visibility[category] && !hasAdminAccess(interaction) && !flexBypassVisibility) {
         await interaction
           .reply({
             content: "Cette categorie de commandes est actuellement desactivee sur ce serveur.",
