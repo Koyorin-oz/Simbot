@@ -12,9 +12,28 @@ const {
 const { MediaGalleryBuilder, MediaGalleryItemBuilder } = require("@discordjs/builders");
 const config = require("../config");
 const { ACCENT_COLOR } = require("../utils/componentsV2Panels");
+const { ensureSuggestionsChannel } = require("./channelBootstrapService");
 
-const MODAL_CUSTOM_ID = "suggestion_submit_modal";
 const VOTE_PREFIX = "sg_vote";
+
+/** Format boutons : sg_vote:<id numerique>:up|down */
+function parseSuggestionVoteCustomId(customId) {
+  if (!customId || !String(customId).startsWith(`${VOTE_PREFIX}:`)) return null;
+  const parts = String(customId).split(":");
+  if (parts.length !== 3) return null;
+  const suggestionId = Number(parts[1]);
+  const dir = parts[2];
+  if (!Number.isInteger(suggestionId) || (dir !== "up" && dir !== "down")) return null;
+  return { suggestionId, dir };
+}
+
+function channelMatchesStoredSuggestion(interaction, storedChannelId) {
+  const sid = String(storedChannelId);
+  if (String(interaction.channelId) === sid) return true;
+  const ch = interaction.channel;
+  if (ch?.isThread?.() && String(ch.parentId) === sid) return true;
+  return false;
+}
 
 function safeImageUrl(raw) {
   if (!raw || typeof raw !== "string") return null;
@@ -150,8 +169,101 @@ function buildSuggestionMessagePayload(suggestion, up, down) {
   };
 }
 
+/**
+ * Message initial : meme panneau + ping du role staff (sans re-ping aux mises a jour des votes).
+ * @param {{ pingRoleId?: string }} [opts]
+ */
+function buildSuggestionPostPayload(suggestion, up, down, opts = {}) {
+  const base = buildSuggestionMessagePayload(suggestion, up, down);
+  const pingRoleId = String(opts.pingRoleId || "").trim();
+  if (!pingRoleId) return base;
+  return {
+    ...base,
+    content: `<@&${pingRoleId}> **Nouvelle suggestion**`,
+    allowedMentions: {
+      parse: [],
+      users: [...(base.allowedMentions?.users || [])],
+      roles: [pingRoleId]
+    }
+  };
+}
+
+/**
+ * Publication complete : salon suggestions, thread de discussion, base de donnees.
+ * @param {import("discord.js").Client} client
+ * @param {import("discord.js").ChatInputCommandInteraction} interaction
+ */
+async function submitNewSuggestion(client, interaction, { title, body, imageUrl }) {
+  const guild = interaction.guild;
+  if (!guild) return { ok: false, error: "Hors serveur." };
+
+  let channel = null;
+  if (config.suggestions?.channelId) {
+    channel = await guild.channels.fetch(config.suggestions.channelId).catch(() => null);
+  }
+  if (!channel?.isTextBased?.()) {
+    const ensured = await ensureSuggestionsChannel(guild);
+    if (!ensured.ok) return { ok: false, error: ensured.error };
+    channel = ensured.channel;
+  }
+
+  const me = guild.members.me;
+  const botPerms = me ? channel.permissionsFor(me) : null;
+  if (!botPerms?.has(PermissionFlagsBits.ViewChannel) || !botPerms.has(PermissionFlagsBits.SendMessages)) {
+    return { ok: false, error: "Le bot ne peut pas poster dans le salon suggestions." };
+  }
+
+  const canThread = botPerms.has(PermissionFlagsBits.CreatePublicThreads);
+
+  let row;
+  try {
+    row = await client.prisma.suggestion.create({
+      data: {
+        guildId: guild.id,
+        channelId: channel.id,
+        authorId: interaction.user.id,
+        title: title.slice(0, 200),
+        body: body.slice(0, 4000),
+        imageUrl: imageUrl || null,
+        messageId: null
+      }
+    });
+  } catch (e) {
+    return { ok: false, error: `Erreur base de donnees : ${e.message || e}` };
+  }
+
+  const pingRoleId = String(config.suggestions?.pingRoleId || "").trim();
+  const payload = buildSuggestionPostPayload(row, 0, 0, { pingRoleId });
+
+  let msg;
+  try {
+    msg = await channel.send(payload);
+  } catch (e) {
+    await client.prisma.suggestion.delete({ where: { id: row.id } }).catch(() => null);
+    return { ok: false, error: `Impossible d'envoyer le message : ${e.message || e}` };
+  }
+
+  await client.prisma.suggestion.update({
+    where: { id: row.id },
+    data: { messageId: msg.id }
+  });
+
+  if (canThread) {
+    try {
+      await msg.startThread({
+        name: sanitizeSnippet(title, 100) || "Discussion",
+        autoArchiveDuration: 1440,
+        reason: "Discussion sur la suggestion"
+      });
+    } catch {
+      /* salon sans fils ou limite Discord */
+    }
+  }
+
+  return { ok: true, url: msg.url };
+}
+
 module.exports = {
-  MODAL_CUSTOM_ID,
   VOTE_PREFIX,
   safeImageUrl,
   sanitizeSnippet,
@@ -160,5 +272,9 @@ module.exports = {
   isSuggestionsStaff,
   getVoteCounts,
   applyVote,
-  buildSuggestionMessagePayload
+  buildSuggestionMessagePayload,
+  buildSuggestionPostPayload,
+  parseSuggestionVoteCustomId,
+  channelMatchesStoredSuggestion,
+  submitNewSuggestion
 };

@@ -37,13 +37,13 @@ const {
   buildTranscript
 } = require("../services/ticketService");
 const {
-  MODAL_CUSTOM_ID,
-  safeImageUrl,
+  parseSuggestionVoteCustomId,
+  channelMatchesStoredSuggestion,
   getVoteCounts,
   applyVote,
-  buildSuggestionMessagePayload
+  buildSuggestionMessagePayload,
+  canViewAndVoteSuggestions
 } = require("../services/suggestionService");
-const { ensureSuggestionsChannel } = require("../services/channelBootstrapService");
 
 function parsePrvOwner(customId) {
   const m = String(customId).match(/^(.+):(\d{17,20})$/);
@@ -740,96 +740,39 @@ async function handlePrivateRoomInteractions(client, interaction) {
 }
 
 async function handleSuggestionInteractions(client, interaction) {
-  if (interaction.isModalSubmit() && interaction.customId === MODAL_CUSTOM_ID) {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    if (!interaction.inGuild() || !interaction.member) {
-      await interaction.editReply({ content: "Action impossible hors serveur." });
-      return true;
-    }
-    const title = interaction.fields.getTextInputValue("sg_title").trim();
-    const body = interaction.fields.getTextInputValue("sg_body").trim();
-    const imgRaw = interaction.fields.getTextInputValue("sg_image")?.trim() || "";
-    const imageUrl = safeImageUrl(imgRaw);
-    if (imgRaw && !imageUrl) {
-      await interaction.editReply({
-        content: "URL d'image invalide — utilise un lien **http** ou **https** (ex. image hébergée en ligne)."
-      });
-      return true;
-    }
-
-    let channel = null;
-    if (config.suggestions?.channelId) {
-      channel = await interaction.guild.channels.fetch(config.suggestions.channelId).catch(() => null);
-    }
-    if (!channel?.isTextBased?.()) {
-      const ensured = await ensureSuggestionsChannel(interaction.guild);
-      if (!ensured.ok) {
-        await interaction.editReply({ content: ensured.error });
-        return true;
-      }
-      channel = ensured.channel;
-    }
-
-    const me = interaction.guild.members.me;
-    if (!channel.permissionsFor(me).has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) {
-      await interaction.editReply({ content: "Le bot ne peut pas poster dans le salon suggestions." });
-      return true;
-    }
-
-    let row;
-    try {
-      row = await client.prisma.suggestion.create({
-        data: {
-          guildId: interaction.guild.id,
-          channelId: channel.id,
-          authorId: interaction.user.id,
-          title: title.slice(0, 200),
-          body: body.slice(0, 4000),
-          imageUrl: imageUrl || null,
-          messageId: null
-        }
-      });
-    } catch (e) {
-      await interaction.editReply({ content: `Erreur base de données : ${e.message || e}` });
-      return true;
-    }
-
-    const payload = buildSuggestionMessagePayload(row, 0, 0);
-    let msg;
-    try {
-      msg = await channel.send(payload);
-    } catch (e) {
-      await client.prisma.suggestion.delete({ where: { id: row.id } }).catch(() => null);
-      await interaction.editReply({ content: `Impossible d'envoyer : ${e.message || e}` });
-      return true;
-    }
-
-    await client.prisma.suggestion.update({
-      where: { id: row.id },
-      data: { messageId: msg.id }
-    });
-
-    await interaction.editReply({
-      content: `Suggestion publiée : [ouvrir](${msg.url})`
-    });
-    return true;
-  }
-
   if (interaction.isButton() && interaction.customId.startsWith("sg_vote:")) {
-    const parts = interaction.customId.split(":");
-    const suggestionId = Number(parts[2]);
-    const dir = parts[3];
-    if (!Number.isInteger(suggestionId) || (dir !== "up" && dir !== "down")) return false;
+    const parsed = parseSuggestionVoteCustomId(interaction.customId);
+    if (!parsed) return false;
 
     if (interaction.user.bot) {
       await interaction.reply({ content: "Les bots ne votent pas.", flags: MessageFlags.Ephemeral }).catch(() => null);
       return true;
     }
 
+    if (!interaction.inGuild()) {
+      await interaction.reply({ content: "Vote impossible hors serveur.", flags: MessageFlags.Ephemeral }).catch(() => null);
+      return true;
+    }
+
+    const member =
+      interaction.member ||
+      (await interaction.guild.members.fetch(interaction.user.id).catch(() => null));
+    if (!member || !canViewAndVoteSuggestions(member)) {
+      await interaction
+        .reply({
+          content:
+            "Tu dois etre **membre verifie** (ou staff suggestions) pour voter. Si tu viens d'obtenir le role, reessaie dans un instant.",
+          flags: MessageFlags.Ephemeral
+        })
+        .catch(() => null);
+      return true;
+    }
+
     await interaction.deferUpdate().catch(() => null);
 
+    const { suggestionId, dir } = parsed;
     const suggestion = await client.prisma.suggestion.findUnique({ where: { id: suggestionId } });
-    if (!suggestion || suggestion.channelId !== interaction.channelId) {
+    if (!suggestion || !channelMatchesStoredSuggestion(interaction, suggestion.channelId)) {
       await interaction
         .followUp({ content: "Suggestion introuvable ou mauvais salon.", flags: MessageFlags.Ephemeral })
         .catch(() => null);

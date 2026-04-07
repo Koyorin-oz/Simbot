@@ -114,7 +114,7 @@ function buildBootstrapSuggestionsIntroV2() {
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
           [
-            "• Utilise **`/suggestion`** n’importe où sur le serveur pour ouvrir le formulaire.",
+            "• Utilise **`/suggestion`** (titre + texte ; image en **lien** ou **piece jointe**) — un fil de discussion s’ouvre sous le message.",
             "• **Vote** avec les boutons sous chaque idée — pas d’emoji-réactions.",
             "• Les **membres vérifiés** lisent et votent ; le **staff** peut commenter ici."
           ].join("\n")

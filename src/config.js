@@ -198,10 +198,12 @@ module.exports = {
   /**
    * Suggestions : salon déployé via /setup-salons (option suggestions).
    * Staff : variable d'environnement SUGGESTIONS_STAFF_ROLE_ID (messages dans le salon).
+   * Ping : role mentionne a chaque nouvelle suggestion (SUGGESTIONS_PING_ROLE_ID ou ID ci-dessous).
    */
   suggestions: {
     channelId: ch.suggestionsChannelId || "1386016926475489442",
-    staffRoleId: String(process.env.SUGGESTIONS_STAFF_ROLE_ID || "").trim()
+    staffRoleId: String(process.env.SUGGESTIONS_STAFF_ROLE_ID || "").trim(),
+    pingRoleId: String(process.env.SUGGESTIONS_PING_ROLE_ID || "1311064337984651344").trim()
   },
 
   /** Tickets support (général — modération / admins). */

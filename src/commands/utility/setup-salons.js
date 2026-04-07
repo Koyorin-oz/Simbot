@@ -39,7 +39,7 @@ function buildReply({ setup, lines, warnings }, prefix) {
     "**Recap IDs :**",
     ...(detail.length ? detail : ["(aucun salon setup pour l’instant)"]),
     "",
-    "Style salons : **emoji | nom**. Option **suggestions** : salon 💡 | suggestions (Components V2 + votes). Définis **`SUGGESTIONS_STAFF_ROLE_ID`** dans `.env` pour le rôle qui peut écrire dans ce salon."
+    "Style salons : **emoji | nom**. Option **suggestions** : salon 💡 | suggestions (votes). `.env` : **`SUGGESTIONS_STAFF_ROLE_ID`** (écriture staff), **`SUGGESTIONS_PING_ROLE_ID`** (mention à chaque `/suggestion`, défaut prod)."
   ];
   return parts.join("\n").slice(0, 2000);
 }
