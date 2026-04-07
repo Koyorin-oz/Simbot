@@ -1,4 +1,4 @@
-# CARMINABOT — LA CARMINAUTE
+# sIMB OT — LA CARMINAUTE
 
 Bot Discord.js v14 : économie SC / SP / LP, rangs, boutique, profil canvas, modération, tickets, jeux, etc.
 
