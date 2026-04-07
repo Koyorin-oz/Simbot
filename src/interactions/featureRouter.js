@@ -37,7 +37,6 @@ const {
 const {
   MODAL_CUSTOM_ID,
   safeImageUrl,
-  canViewAndVoteSuggestions,
   getVoteCounts,
   applyVote,
   buildSuggestionMessagePayload
@@ -682,11 +681,6 @@ async function handleSuggestionInteractions(client, interaction) {
       await interaction.editReply({ content: "Action impossible hors serveur." });
       return true;
     }
-    if (!canViewAndVoteSuggestions(interaction.member)) {
-      await interaction.editReply({ content: "Tu n'as pas la permission d'envoyer une suggestion ici." });
-      return true;
-    }
-
     const title = interaction.fields.getTextInputValue("sg_title").trim();
     const body = interaction.fields.getTextInputValue("sg_body").trim();
     const imgRaw = interaction.fields.getTextInputValue("sg_image")?.trim() || "";
@@ -762,27 +756,41 @@ async function handleSuggestionInteractions(client, interaction) {
     const dir = parts[3];
     if (!Number.isInteger(suggestionId) || (dir !== "up" && dir !== "down")) return false;
 
+    if (interaction.user.bot) {
+      await interaction.reply({ content: "Les bots ne votent pas.", flags: MessageFlags.Ephemeral }).catch(() => null);
+      return true;
+    }
+
+    await interaction.deferUpdate().catch(() => null);
+
     const suggestion = await client.prisma.suggestion.findUnique({ where: { id: suggestionId } });
     if (!suggestion || suggestion.channelId !== interaction.channelId) {
-      await interaction.reply({ content: "Suggestion introuvable.", flags: MessageFlags.Ephemeral });
+      await interaction
+        .followUp({ content: "Suggestion introuvable ou mauvais salon.", flags: MessageFlags.Ephemeral })
+        .catch(() => null);
       return true;
     }
-    if (!canViewAndVoteSuggestions(interaction.member)) {
-      await interaction.reply({ content: "Tu ne peux pas voter ici.", flags: MessageFlags.Ephemeral });
-      return true;
-    }
-
-    await applyVote(client.prisma, suggestionId, interaction.user.id, dir);
-    const counts = await getVoteCounts(client.prisma, suggestionId);
-    const payload = buildSuggestionMessagePayload(suggestion, counts.up, counts.down);
 
     try {
-      await interaction.update(payload);
+      await applyVote(client.prisma, suggestionId, interaction.user.id, dir);
+      const counts = await getVoteCounts(client.prisma, suggestionId);
+      const payload = buildSuggestionMessagePayload(suggestion, counts.up, counts.down);
+
+      if (interaction.message?.editable) {
+        await interaction.message.edit({
+          components: payload.components,
+          flags: payload.flags,
+          embeds: payload.embeds ?? [],
+          allowedMentions: payload.allowedMentions
+        });
+      }
     } catch (e) {
-      await interaction.reply({
-        content: `Impossible de mettre à jour le message (${e.message || e}).`,
-        flags: MessageFlags.Ephemeral
-      });
+      await interaction
+        .followUp({
+          content: `Erreur vote / affichage : ${e.message || e}`.slice(0, 2000),
+          flags: MessageFlags.Ephemeral
+        })
+        .catch(() => null);
     }
     return true;
   }

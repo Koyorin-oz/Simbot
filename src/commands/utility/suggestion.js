@@ -3,7 +3,7 @@ const {SlashCommandBuilder,
   TextInputBuilder,
   TextInputStyle,
   ActionRowBuilder, MessageFlags} = require("discord.js");
-const { MODAL_CUSTOM_ID, canViewAndVoteSuggestions } = require("../../services/suggestionService");
+const { MODAL_CUSTOM_ID } = require("../../services/suggestionService");
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("suggestion")
@@ -12,15 +12,6 @@ module.exports = {
   async execute(client, interaction) {
     if (!interaction.inGuild() || !interaction.member) {
       await interaction.reply({ content: "Utilisable uniquement sur un serveur.", flags: MessageFlags.Ephemeral });
-      return;
-    }
-
-    if (!canViewAndVoteSuggestions(interaction.member)) {
-      await interaction.reply({
-        content:
-          "Réservé aux **membres vérifiés** ou au **staff** (rôle `suggestions.staffRoleId` / permissions modération).",
-        flags: MessageFlags.Ephemeral
-      });
       return;
     }
 

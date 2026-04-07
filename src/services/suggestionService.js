@@ -69,6 +69,10 @@ async function getVoteCounts(prisma, suggestionId) {
   return { up, down };
 }
 
+/**
+ * Un membre = au plus un vote par suggestion. Clic sur l’autre bouton = changement d’avis.
+ * Re-clic sur le même bouton = rien (pas de double vote, pas de retrait du vote).
+ */
 async function applyVote(prisma, suggestionId, userId, direction) {
   const val = direction === "up" ? 1 : -1;
   const existing = await prisma.suggestionVote.findUnique({
@@ -78,9 +82,7 @@ async function applyVote(prisma, suggestionId, userId, direction) {
     await prisma.suggestionVote.create({
       data: { suggestionId, userId, value: val }
     });
-  } else if (existing.value === val) {
-    await prisma.suggestionVote.delete({ where: { id: existing.id } });
-  } else {
+  } else if (existing.value !== val) {
     await prisma.suggestionVote.update({
       where: { id: existing.id },
       data: { value: val }
