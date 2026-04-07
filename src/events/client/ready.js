@@ -10,6 +10,7 @@ const { processSpDecay } = require("../../services/spDecayService");
 const { ensureInventoryTables } = require("../../services/inventoryService");
 const { isEconomyPaused } = require("../../services/economyRuntimeService");
 const { startJokeScheduler } = require("../../services/jokeScheduleService");
+const { startYoutubeNotifyPoller } = require("../../services/youtubeNotifyService");
 
 function startVoiceGainTicker(client) {
   stopVoiceGainTicker(client);
@@ -102,6 +103,7 @@ module.exports = {
       startSpDecayTicker(client);
     }
     startJokeScheduler(client);
+    startYoutubeNotifyPoller(client);
   },
   startVoiceGainTicker,
   stopVoiceGainTicker,

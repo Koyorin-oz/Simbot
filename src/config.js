@@ -258,5 +258,21 @@ module.exports = {
       bypassRoleIds,
       mediaChannelId: String(process.env.LINK_MEDIA_CHANNEL_ID || "735644918789439496").trim()
     };
-  })()
+  })(),
+
+  /**
+   * Notifications YouTube (RSS) : message type NotifEye (texte + embed rouge + bouton lien).
+   * Desactiver : YOUTUBE_NOTIFY_ENABLED=false
+   */
+  youtubeNotify: {
+    enabled: String(process.env.YOUTUBE_NOTIFY_ENABLED || "true").toLowerCase() !== "false",
+    guildId: String(process.env.YOUTUBE_NOTIFY_GUILD_ID || MAIN_GUILD_ID).trim(),
+    channelId: String(process.env.YOUTUBE_NOTIFY_CHANNEL_ID || "735681234847531078").trim(),
+    pollIntervalMinutes: Math.max(2, Number(process.env.YOUTUBE_NOTIFY_POLL_MINUTES) || 5),
+    /** Chaque entree : `channelId` OU `handle` (@ sans le @). displayName = gras dans le message. */
+    sources: [
+      { channelId: "UCFwHronrvO5k4Iyp4jm4sxw", displayName: "Carminator" },
+      { handle: "Carmineoff", displayName: "Carmineoff" }
+    ]
+  }
 };

@@ -150,3 +150,10 @@ model AutoModCategory {
 
   @@index([guildId])
 }
+
+/** Derniere video connue par chaine YouTube (notif nouvelles videos). sourceKey = channelId UC... */
+model YouTubeNotifyState {
+  sourceKey   String   @id
+  lastVideoId String?
+  updatedAt   DateTime @updatedAt
+}
