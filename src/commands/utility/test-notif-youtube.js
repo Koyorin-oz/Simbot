@@ -99,10 +99,12 @@ module.exports = {
     if (
       !perms?.has(PermissionFlagsBits.ViewChannel) ||
       !perms?.has(PermissionFlagsBits.SendMessages) ||
-      !perms?.has(PermissionFlagsBits.EmbedLinks)
+      !perms?.has(PermissionFlagsBits.EmbedLinks) ||
+      !perms?.has(PermissionFlagsBits.MentionEveryone)
     ) {
       await interaction.editReply({
-        content: "Le bot ne peut pas envoyer embed + boutons dans le salon notif."
+        content:
+          "Le bot doit pouvoir envoyer embed, boutons et **Mentionner @everyone** dans le salon notif (parametres du salon > permissions du bot)."
       });
       return;
     }

@@ -99,7 +99,7 @@ function thumbnailUrl(videoId) {
 function buildYoutubeNotificationPayload(displayName, videoId, title) {
   const url = watchUrl(videoId);
   const short = youtuBeUrl(videoId);
-  const content = `**${displayName}** vient de sortir une nouvelle vidéo ! ALLEZ LA VOIR, c'est un banger. 🤩\n${short}`;
+  const content = `@everyone\n**${displayName}** vient de sortir une nouvelle vidéo ! ALLEZ LA VOIR, c'est un banger. 🤩\n${short}`;
 
   const titleSafe = escapeForMarkdownLinkTitle(title);
   const embed = new EmbedBuilder()
@@ -112,7 +112,12 @@ function buildYoutubeNotificationPayload(displayName, videoId, title) {
     new ButtonBuilder().setLabel("Watch Video").setStyle(ButtonStyle.Link).setURL(url)
   );
 
-  return { content, embeds: [embed], components: [row] };
+  return {
+    content,
+    embeds: [embed],
+    components: [row],
+    allowedMentions: { parse: ["everyone"] }
+  };
 }
 
 async function sendYoutubeNotification(channel, displayName, videoId, title) {
@@ -214,6 +219,12 @@ async function runYoutubeNotifyPoll(client) {
   ) {
     console.warn("[YOUTUBE_NOTIFY] Permissions bot insuffisantes sur le salon notif.");
     return;
+  }
+
+  if (!perms?.has(PermissionFlagsBits.MentionEveryone)) {
+    console.warn(
+      "[YOUTUBE_NOTIFY] Donne au bot **Mentionner @everyone** sur le salon notif, sinon les messages @everyone peuvent echouer."
+    );
   }
 
   const resolved = await resolveSources(yn.sources || []);
