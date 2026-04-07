@@ -181,8 +181,8 @@ module.exports = {
   privateRoom: {
     enabled: true,
     lobbyChannelId: ch.lobbyChannelId || "1486092416896209098",
-    /** Categorie parente des vocaux prives crees par le bot. */
-    voiceCategoryId: ch.voiceCategoryId || "1486022218214277346",
+    /** Categorie parente des vocaux prives crees par le bot (lobby + salons crees). */
+    voiceCategoryId: ch.voiceCategoryId || "735856720751886437",
     /** Salon texte de panneau (legacy /voc-panel, optionnel). */
     panelTextChannelId: ch.panelTextChannelId || ""
   },

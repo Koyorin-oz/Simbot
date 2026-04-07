@@ -30,7 +30,7 @@ const CH = {
   logsMod: "🔒 | logs-mod",
   ticketsCategory: "🎫 | tickets",
   vocCat: "🎤 | voc — panel",
-  lobby: "🔊 | lobby vocal",
+  lobby: "🎙️ Créer votre salon",
   panelVoc: "🎤 | panel-voc",
   suggestions: "💡 | suggestions",
   catNouveaux: "🔐 | nouveaux",

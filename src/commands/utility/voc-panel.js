@@ -18,7 +18,7 @@ module.exports = {
     const vcId = member?.voice?.channelId;
     if (!vcId || String(vcId) !== String(pr.lobbyChannelId)) {
       await interaction.reply({
-        content: `Tu dois etre **connecte au vocal d'accueil** : <#${pr.lobbyChannelId}>`,
+        content: `Tu dois etre dans le vocal **Creer votre salon** : <#${pr.lobbyChannelId}>`,
         flags: MessageFlags.Ephemeral
       });
       return;

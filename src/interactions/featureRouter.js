@@ -18,6 +18,7 @@ const {
 const {
   buildPanelPayload,
   createTempVoice,
+  applyVoiceChannelSettings,
   loadPrefs,
   savePrefs,
   parseIdList,
@@ -467,8 +468,10 @@ async function handleTicketInteractions(client, interaction) {
   return false;
 }
 
-function buildCreateModal(prefs, ownerId) {
-  const modal = new ModalBuilder().setCustomId(`prv_create_modal:${ownerId}`).setTitle("Creer ton salon vocal");
+function buildCreateModal(prefs, ownerId, hasExistingChannel = false) {
+  const modal = new ModalBuilder()
+    .setCustomId(`prv_create_modal:${ownerId}`)
+    .setTitle(hasExistingChannel ? "Configurer ton salon vocal" : "Creer ton salon vocal");
   modal.addComponents(
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
@@ -514,6 +517,25 @@ function buildCreateModal(prefs, ownerId) {
   return modal;
 }
 
+function normalizePrivateRoomMode(raw) {
+  const modeRaw = String(raw || "open").toLowerCase();
+  const modeMap = { open: "open", blacklist: "blacklist", whitelist: "whitelist", both: "both" };
+  return modeMap[modeRaw] || "open";
+}
+
+async function applySessionVoiceFromPrefs(client, prisma, guildId, ownerId, member) {
+  const s = client.privateRoomSessions?.get(`${guildId}:${ownerId}`);
+  if (!s?.voiceChannelId) return { ok: true, skipped: true };
+  const prefs = await loadPrefs(prisma, guildId, ownerId);
+  return applyVoiceChannelSettings(client, prisma, member, s.voiceChannelId, {
+    name: prefs.defaultName || "Salon vocal",
+    limit: Number.isFinite(Number(prefs.defaultLimit)) ? Number(prefs.defaultLimit) : 0,
+    mode: normalizePrivateRoomMode(prefs.defaultMode),
+    blacklistIds: safeJsonParseArray(prefs.blacklistIds),
+    whitelistIds: safeJsonParseArray(prefs.whitelistIds)
+  });
+}
+
 async function handlePrivateRoomInteractions(client, interaction) {
   const pr = config.privateRoom;
   if (!pr?.enabled) return false;
@@ -529,7 +551,14 @@ async function handlePrivateRoomInteractions(client, interaction) {
 
     if (prefix === "prv_create") {
       const prefs = await loadPrefs(client.prisma, interaction.guildId, ownerId);
-      await interaction.showModal(buildCreateModal(prefs, ownerId));
+      const s = client.privateRoomSessions?.get(`${interaction.guildId}:${ownerId}`);
+      let hasExistingChannel = false;
+      if (s?.voiceChannelId) {
+        const ch = await interaction.guild.channels.fetch(s.voiceChannelId).catch(() => null);
+        hasExistingChannel = Boolean(ch?.isVoiceBased?.());
+        if (!hasExistingChannel) s.voiceChannelId = null;
+      }
+      await interaction.showModal(buildCreateModal(prefs, ownerId, hasExistingChannel));
       return true;
     }
 
@@ -598,13 +627,30 @@ async function handlePrivateRoomInteractions(client, interaction) {
       const mode = modeMap[modeRaw] || "open";
 
       const member = await interaction.guild.members.fetch(ownerId).catch(() => interaction.member);
-      const result = await createTempVoice(client, client.prisma, member, {
-        name,
-        limit,
-        mode,
-        blacklistIds: bl,
-        whitelistIds: wl
-      });
+      const s = client.privateRoomSessions?.get(`${interaction.guildId}:${ownerId}`);
+      const payload = { name, limit, mode, blacklistIds: bl, whitelistIds: wl };
+
+      if (s?.voiceChannelId) {
+        const ch = await interaction.guild.channels.fetch(s.voiceChannelId).catch(() => null);
+        if (ch?.isVoiceBased?.()) {
+          const applied = await applyVoiceChannelSettings(
+            client,
+            client.prisma,
+            member,
+            s.voiceChannelId,
+            payload
+          );
+          if (!applied.ok) {
+            await interaction.editReply({ content: applied.error });
+            return true;
+          }
+          await interaction.editReply({ content: `Parametres appliques sur ${applied.channel}.` });
+          return true;
+        }
+        s.voiceChannelId = null;
+      }
+
+      const result = await createTempVoice(client, client.prisma, member, payload);
 
       if (!result.ok) {
         await interaction.editReply({ content: result.error });
@@ -653,9 +699,16 @@ async function handlePrivateRoomInteractions(client, interaction) {
     if (prefix === "prv_bl_modal") {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const ids = parseIdList(interaction.fields.getTextInputValue("pr_ids"));
+      await loadPrefs(client.prisma, interaction.guildId, ownerId);
       await savePrefs(client.prisma, interaction.guildId, ownerId, { blacklistIds: JSON.stringify(ids) });
+      const member = await interaction.guild.members.fetch(ownerId).catch(() => interaction.member);
+      const applied = await applySessionVoiceFromPrefs(client, client.prisma, interaction.guildId, ownerId, member);
+      let extra = "";
+      if (!applied.skipped) {
+        extra = applied.ok ? " Appliquee sur ton salon vocal." : ` ${applied.error}`;
+      }
       await interaction.editReply({
-        content: `Liste noire enregistree (${ids.length} id). Recree le salon pour appliquer aux overwrites.`
+        content: `Liste noire enregistree (${ids.length} id).${extra}`
       });
       return true;
     }
@@ -663,9 +716,16 @@ async function handlePrivateRoomInteractions(client, interaction) {
     if (prefix === "prv_wl_modal") {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const ids = parseIdList(interaction.fields.getTextInputValue("pr_ids"));
+      await loadPrefs(client.prisma, interaction.guildId, ownerId);
       await savePrefs(client.prisma, interaction.guildId, ownerId, { whitelistIds: JSON.stringify(ids) });
+      const member = await interaction.guild.members.fetch(ownerId).catch(() => interaction.member);
+      const applied = await applySessionVoiceFromPrefs(client, client.prisma, interaction.guildId, ownerId, member);
+      let extra = "";
+      if (!applied.skipped) {
+        extra = applied.ok ? " Appliquee sur ton salon vocal." : ` ${applied.error}`;
+      }
       await interaction.editReply({
-        content: `Liste blanche enregistree (${ids.length} id). Recree le salon pour appliquer.`
+        content: `Liste blanche enregistree (${ids.length} id).${extra}`
       });
       return true;
     }

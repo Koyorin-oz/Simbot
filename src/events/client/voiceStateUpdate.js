@@ -36,10 +36,15 @@ module.exports = {
         }
       } else {
         const prefs = await loadPrefs(client.prisma, newState.guild.id, member.id);
+        const limRaw = Number(prefs.defaultLimit);
+        const limit = Number.isFinite(limRaw) ? Math.max(0, Math.min(99, limRaw)) : 0;
+        const modeRaw = String(prefs.defaultMode || "open").toLowerCase();
+        const modeMap = { open: "open", blacklist: "blacklist", whitelist: "whitelist", both: "both" };
+        const mode = modeMap[modeRaw] || "open";
         await createTempVoice(client, client.prisma, member, {
           name: prefs.defaultName || "Salon vocal",
-          limit: Number(prefs.defaultLimit) || 99,
-          mode: prefs.defaultMode || "open",
+          limit,
+          mode,
           blacklistIds: safeJsonParseArray(prefs.blacklistIds),
           whitelistIds: safeJsonParseArray(prefs.whitelistIds)
         }).catch(() => null);

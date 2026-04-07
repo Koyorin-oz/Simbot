@@ -20,15 +20,15 @@ function buildPrivateRoomPanel(hasChannel, prefsSummary, ownerId, opts = {}) {
   const head = opts.pingUser ? `<@${id}>\n\n` : "";
   const panelHint =
     opts.panelTextChannelId && opts.lobbyChannelId
-      ? `Rejoins <#${opts.lobbyChannelId}> : ton salon prive sera cree automatiquement, avec le panneau poste dans le chat de cette voc.`
-      : "Rejoins le vocal d'accueil : ton salon prive sera cree automatiquement, avec le panneau dans le chat de la voc.";
+      ? `Rejoins <#${opts.lobbyChannelId}> (**Creer votre salon**) : tu seras place dans ton vocal prive et le panneau sera dans le chat de cette voc.`
+      : "Rejoins le vocal **Creer votre salon** : tu seras place dans ton vocal prive et le panneau sera dans le chat de la voc.";
   const lines = [
     `${head}## Salons vocaux prives`,
     panelHint,
     "",
     hasChannel
-      ? "Tu as un salon actif. Tu peux le renommer, changer la limite ou les listes."
-      : "Clique sur **Creer un salon** pour ouvrir le formulaire (nom, places, mode open / liste noire / liste blanche).",
+      ? "Tu as un salon actif. Utilise **Configurer mon salon** pour appliquer nom, places, mode et listes sur ce vocal (sans en creer un autre)."
+      : "Utilise **Creer mon salon** pour ouvrir le formulaire (nom, places, mode open / listes).",
     "",
     prefsSummary || "",
     "",
@@ -38,7 +38,7 @@ function buildPrivateRoomPanel(hasChannel, prefsSummary, ownerId, opts = {}) {
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`prv_create:${id}`)
-      .setLabel("Creer un salon")
+      .setLabel(hasChannel ? "Configurer mon salon" : "Creer mon salon")
       .setStyle(ButtonStyle.Success)
       .setDisabled(false),
     new ButtonBuilder()

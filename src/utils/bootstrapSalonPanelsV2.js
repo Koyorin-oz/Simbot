@@ -92,8 +92,8 @@ function buildBootstrapPanelVocV2(lobbyChannelId) {
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
           [
-            `**1.** Rejoins <#${lobbyChannelId}>`,
-            "**2.** Le bot cree automatiquement ton vocal prive et poste le panneau dans le chat de cette voc.",
+            `**1.** Rejoins <#${lobbyChannelId}> (vocal **Creer votre salon**).`,
+            "**2.** Le bot te place dans ton vocal prive (categorie dediee) et poste le panneau dans le chat de cette voc.",
             "",
             "_Tout se fait automatiquement._"
           ].join("\n")

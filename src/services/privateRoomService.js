@@ -69,7 +69,9 @@ async function buildPanelPayload(client, prisma, member, options = {}) {
   const s = await getOrInitSession(client, member.guild.id, member.id);
   let has = false;
   if (s.voiceChannelId) {
-    const ch = member.guild.channels.cache.get(s.voiceChannelId) || (await member.guild.channels.fetch(s.voiceChannelId).catch(() => null));
+    const ch =
+      member.guild.channels.cache.get(s.voiceChannelId) ||
+      (await member.guild.channels.fetch(s.voiceChannelId).catch(() => null));
     has = Boolean(ch);
     if (!has) s.voiceChannelId = null;
   }
@@ -81,27 +83,17 @@ async function buildPanelPayload(client, prisma, member, options = {}) {
   });
 }
 
-async function createTempVoice(client, prisma, member, { name, limit, mode, blacklistIds, whitelistIds }) {
-  const pr = config.privateRoom;
-  if (!pr?.enabled) return { ok: false, error: "Fonction desactivee." };
-
-  const guild = member.guild;
-  const me = guild.members.me;
-  if (!me?.permissions.has(PermissionFlagsBits.ManageChannels) || !me?.permissions.has(PermissionFlagsBits.MoveMembers)) {
-    return { ok: false, error: "Le bot doit gerer les salons et deplacer les membres." };
-  }
-
-  const parent = await guild.channels.fetch(pr.voiceCategoryId).catch(() => null);
-  if (!parent || parent.type !== ChannelType.GuildCategory) {
-    return { ok: false, error: "Categorie vocale introuvable." };
-  }
-
-  const userLimit = Math.max(0, Math.min(99, Number(limit) || 0));
+/**
+ * Overwrites pour un salon vocal prive (membre = owner).
+ * @param {import("discord.js").Guild} guild
+ * @param {import("discord.js").GuildMember} member
+ */
+function buildPrivateVoiceOverwrites(guild, member, mode, blacklistIds, whitelistIds) {
   const bl = [...new Set(blacklistIds)];
   const wl = [...new Set(whitelistIds)];
+  const useWhitelistBase = mode === "whitelist" || mode === "both";
 
   const overwrites = [];
-  const useWhitelistBase = mode === "whitelist" || mode === "both";
 
   if (useWhitelistBase) {
     overwrites.push({
@@ -127,16 +119,117 @@ async function createTempVoice(client, prisma, member, { name, limit, mode, blac
 
   for (const id of wl) {
     if (id === member.id) continue;
-    overwrites.push({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.SendMessages] });
+    overwrites.push({
+      id,
+      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.SendMessages]
+    });
   }
 
   for (const id of bl) {
     if (id === member.id) continue;
-    overwrites.push({ id, deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.SendMessages] });
+    overwrites.push({
+      id,
+      deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.SendMessages]
+    });
   }
 
+  return overwrites;
+}
+
+async function sendPanelToOwnerChannel(client, prisma, member, channel, pr) {
+  const payload = await buildPanelPayload(client, prisma, member, { pingUser: true });
+  const sendOpts = {
+    ...payload,
+    allowedMentions: { users: [member.id] }
+  };
+
+  if (channel?.isVoiceBased?.() && typeof channel.send === "function") {
+    const ok = await channel.send(sendOpts).then(() => true).catch(() => false);
+    if (ok) return true;
+  }
+
+  if (pr?.panelTextChannelId) {
+    const tch = await member.guild.channels.fetch(pr.panelTextChannelId).catch(() => null);
+    if (tch?.isTextBased?.()) {
+      return tch.send(sendOpts).then(() => true).catch(() => false);
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Applique nom, limite, overwrites et enregistre les prefs (salon existant).
+ */
+async function applyVoiceChannelSettings(client, prisma, member, channelId, { name, limit, mode, blacklistIds, whitelistIds }) {
+  const pr = config.privateRoom;
+  if (!pr?.enabled) return { ok: false, error: "Fonction desactivee." };
+
+  const guild = member.guild;
+  const me = guild.members.me;
+  if (!me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
+    return { ok: false, error: "Le bot doit gerer les salons." };
+  }
+
+  const channel = await guild.channels.fetch(channelId).catch(() => null);
+  if (!channel?.isVoiceBased?.()) {
+    return { ok: false, error: "Salon vocal introuvable." };
+  }
+
+  if (String(channel.parentId || "") !== String(pr.voiceCategoryId || "")) {
+    return { ok: false, error: "Ce salon n'est pas un vocal prive du bot." };
+  }
+
+  const userLimit = Math.max(0, Math.min(99, Number(limit) || 0));
+  const bl = [...new Set(blacklistIds)];
+  const wl = [...new Set(whitelistIds)];
+  const overwrites = buildPrivateVoiceOverwrites(guild, member, mode, bl, wl);
+
+  try {
+    await channel.permissionOverwrites.set(overwrites, `Salon prive — ${member.user.tag}`);
+    await channel.setName((name || "Salon vocal").slice(0, 100)).catch(() => null);
+    await channel.setUserLimit(userLimit || 0).catch(() => null);
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+
+  await savePrefs(prisma, guild.id, member.id, {
+    defaultName: (name || "Salon vocal").slice(0, 100),
+    defaultLimit: userLimit,
+    defaultMode: mode,
+    blacklistIds: JSON.stringify(bl),
+    whitelistIds: JSON.stringify(wl)
+  });
+
+  const key = sessionKey(guild.id, member.id);
+  if (!client.privateRoomSessions) client.privateRoomSessions = new Map();
+  client.privateRoomSessions.set(key, { voiceChannelId: channel.id });
+
+  return { ok: true, channel };
+}
+
+async function createTempVoice(client, prisma, member, { name, limit, mode, blacklistIds, whitelistIds }) {
+  const pr = config.privateRoom;
+  if (!pr?.enabled) return { ok: false, error: "Fonction desactivee." };
+
+  const guild = member.guild;
+  const me = guild.members.me;
+  if (!me?.permissions.has(PermissionFlagsBits.ManageChannels) || !me?.permissions.has(PermissionFlagsBits.MoveMembers)) {
+    return { ok: false, error: "Le bot doit gerer les salons et deplacer les membres." };
+  }
+
+  const parent = await guild.channels.fetch(pr.voiceCategoryId).catch(() => null);
+  if (!parent || parent.type !== ChannelType.GuildCategory) {
+    return { ok: false, error: "Categorie vocale introuvable." };
+  }
+
+  const userLimit = Math.max(0, Math.min(99, Number(limit) || 0));
+  const bl = [...new Set(blacklistIds)];
+  const wl = [...new Set(whitelistIds)];
+  const overwrites = buildPrivateVoiceOverwrites(guild, member, mode, bl, wl);
+
   const channel = await guild.channels.create({
-    name: name.slice(0, 100) || "Salon vocal",
+    name: (name || "Salon vocal").slice(0, 100),
     type: ChannelType.GuildVoice,
     parent,
     userLimit: userLimit || undefined,
@@ -149,7 +242,7 @@ async function createTempVoice(client, prisma, member, { name, limit, mode, blac
   client.privateRoomSessions.set(key, { voiceChannelId: channel.id });
 
   await savePrefs(prisma, guild.id, member.id, {
-    defaultName: name.slice(0, 100),
+    defaultName: (name || "Salon vocal").slice(0, 100),
     defaultLimit: userLimit,
     defaultMode: mode,
     blacklistIds: JSON.stringify(bl),
@@ -160,15 +253,7 @@ async function createTempVoice(client, prisma, member, { name, limit, mode, blac
     await member.voice.setChannel(channel).catch(() => null);
   }
 
-  if (channel?.isTextBased?.()) {
-    const payload = await buildPanelPayload(client, prisma, member, { pingUser: true });
-    await channel
-      .send({
-        ...payload,
-        allowedMentions: { users: [member.id] }
-      })
-      .catch(() => null);
-  }
+  await sendPanelToOwnerChannel(client, prisma, member, channel, pr);
 
   return { ok: true, channel };
 }
@@ -194,5 +279,6 @@ module.exports = {
   getOrInitSession,
   buildPanelPayload,
   createTempVoice,
+  applyVoiceChannelSettings,
   deleteIfOwnerEmpty
 };
