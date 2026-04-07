@@ -109,12 +109,26 @@ async function applyVote(prisma, suggestionId, userId, direction) {
   }
 }
 
-function buildSuggestionMessagePayload(suggestion, up, down) {
+/**
+ * @param {{ pingRoleId?: string }} [opts] — avec Components V2, pas de `content` : mention du role en TextDisplay.
+ */
+function buildSuggestionMessagePayload(suggestion, up, down, opts = {}) {
   const { id, authorId, title, body, imageUrl } = suggestion;
   const titleSafe = sanitizeSnippet(title, 200);
   const bodySafe = sanitizeSnippet(body, 3800);
+  const pingRoleId = String(opts.pingRoleId || "").trim();
 
   const container = new ContainerBuilder().setAccentColor(ACCENT_COLOR);
+
+  if (pingRoleId) {
+    container
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(`<@&${pingRoleId}>\n**Nouvelle suggestion**`)
+      )
+      .addSeparatorComponents(
+        new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Large)
+      );
+  }
 
   container
     .addTextDisplayComponents(
@@ -161,31 +175,22 @@ function buildSuggestionMessagePayload(suggestion, up, down) {
       )
     );
 
+  const allowedMentions = { parse: [], users: [authorId] };
+  if (pingRoleId) allowedMentions.roles = [pingRoleId];
+
   return {
     components: [container],
     flags: MessageFlags.IsComponentsV2 | MessageFlags.SuppressEmbeds,
     embeds: [],
-    allowedMentions: { parse: [], users: [authorId] }
+    allowedMentions
   };
 }
 
-/**
- * Message initial : meme panneau + ping du role staff (sans re-ping aux mises a jour des votes).
- * @param {{ pingRoleId?: string }} [opts]
- */
+/** Alias : publication avec ping (meme structure que les mises a jour de votes si le meme pingRoleId est passe). */
 function buildSuggestionPostPayload(suggestion, up, down, opts = {}) {
-  const base = buildSuggestionMessagePayload(suggestion, up, down);
-  const pingRoleId = String(opts.pingRoleId || "").trim();
-  if (!pingRoleId) return base;
-  return {
-    ...base,
-    content: `<@&${pingRoleId}> **Nouvelle suggestion**`,
-    allowedMentions: {
-      parse: [],
-      users: [...(base.allowedMentions?.users || [])],
-      roles: [pingRoleId]
-    }
-  };
+  return buildSuggestionMessagePayload(suggestion, up, down, {
+    pingRoleId: opts.pingRoleId
+  });
 }
 
 /**

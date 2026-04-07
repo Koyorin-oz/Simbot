@@ -782,7 +782,8 @@ async function handleSuggestionInteractions(client, interaction) {
     try {
       await applyVote(client.prisma, suggestionId, interaction.user.id, dir);
       const counts = await getVoteCounts(client.prisma, suggestionId);
-      const payload = buildSuggestionMessagePayload(suggestion, counts.up, counts.down);
+      const pingRoleId = String(config.suggestions?.pingRoleId || "").trim();
+      const payload = buildSuggestionMessagePayload(suggestion, counts.up, counts.down, { pingRoleId });
 
       if (interaction.message?.editable) {
         await interaction.message.edit({
