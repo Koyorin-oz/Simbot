@@ -120,6 +120,13 @@ async function sendYoutubeNotification(channel, displayName, videoId, title) {
   await channel.send(payload);
 }
 
+/** Derniere video du flux RSS pour un channelId UC... */
+async function fetchLatestVideoForSourceKey(sourceKey) {
+  const xml = await fetchText(RSS_BY_CHANNEL(sourceKey));
+  const entries = parseYoutubeAtomEntries(xml);
+  return entries.length ? entries[0] : null;
+}
+
 /** Resolve toutes les sources en { sourceKey, displayName }. */
 async function resolveSources(sources) {
   const out = [];
@@ -249,5 +256,7 @@ module.exports = {
   stopYoutubeNotifyPoller,
   runYoutubeNotifyPoll,
   resolveChannelIdFromHandle,
-  buildYoutubeNotificationPayload
+  buildYoutubeNotificationPayload,
+  resolveYoutubeNotifySources: resolveSources,
+  fetchLatestVideoForSourceKey
 };
