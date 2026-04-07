@@ -28,6 +28,28 @@ function safeJsonParseArray(str) {
   }
 }
 
+/** Nom vocal prive par defaut : « Salon de » + pseudo (max 100 caracteres Discord). */
+function defaultPrivateRoomChannelName(member) {
+  const prefix = "Salon de ";
+  const raw = member?.displayName || member?.user?.username || "membre";
+  const cleaned = String(raw).replace(/[\r\n\t]/g, " ").trim() || "membre";
+  const maxRest = Math.max(0, 100 - prefix.length);
+  return (prefix + cleaned.slice(0, maxRest)).slice(0, 100);
+}
+
+function resolvePrivateRoomDisplayName(member, explicitName) {
+  const n = explicitName != null ? String(explicitName).trim() : "";
+  if (n) return n.slice(0, 100);
+  return defaultPrivateRoomChannelName(member);
+}
+
+/** Pref en base ou ancien defaut « Salon vocal » → nom personnalise. */
+function resolvePrivateRoomNameFromPrefs(member, prefsDefaultName) {
+  const saved = String(prefsDefaultName || "").trim();
+  if (saved && saved !== "Salon vocal") return saved.slice(0, 100);
+  return defaultPrivateRoomChannelName(member);
+}
+
 async function loadPrefs(prisma, guildId, userId) {
   return prisma.privateRoomPrefs.upsert({
     where: { guildId_userId: { guildId, userId } },
@@ -184,17 +206,18 @@ async function applyVoiceChannelSettings(client, prisma, member, channelId, { na
   const bl = [...new Set(blacklistIds)];
   const wl = [...new Set(whitelistIds)];
   const overwrites = buildPrivateVoiceOverwrites(guild, member, mode, bl, wl);
+  const resolvedName = resolvePrivateRoomDisplayName(member, name);
 
   try {
     await channel.permissionOverwrites.set(overwrites, `Salon prive — ${member.user.tag}`);
-    await channel.setName((name || "Salon vocal").slice(0, 100)).catch(() => null);
+    await channel.setName(resolvedName).catch(() => null);
     await channel.setUserLimit(userLimit || 0).catch(() => null);
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
 
   await savePrefs(prisma, guild.id, member.id, {
-    defaultName: (name || "Salon vocal").slice(0, 100),
+    defaultName: resolvedName,
     defaultLimit: userLimit,
     defaultMode: mode,
     blacklistIds: JSON.stringify(bl),
@@ -227,9 +250,10 @@ async function createTempVoice(client, prisma, member, { name, limit, mode, blac
   const bl = [...new Set(blacklistIds)];
   const wl = [...new Set(whitelistIds)];
   const overwrites = buildPrivateVoiceOverwrites(guild, member, mode, bl, wl);
+  const resolvedName = resolvePrivateRoomDisplayName(member, name);
 
   const channel = await guild.channels.create({
-    name: (name || "Salon vocal").slice(0, 100),
+    name: resolvedName,
     type: ChannelType.GuildVoice,
     parent,
     userLimit: userLimit || undefined,
@@ -242,7 +266,7 @@ async function createTempVoice(client, prisma, member, { name, limit, mode, blac
   client.privateRoomSessions.set(key, { voiceChannelId: channel.id });
 
   await savePrefs(prisma, guild.id, member.id, {
-    defaultName: (name || "Salon vocal").slice(0, 100),
+    defaultName: resolvedName,
     defaultLimit: userLimit,
     defaultMode: mode,
     blacklistIds: JSON.stringify(bl),
@@ -280,5 +304,8 @@ module.exports = {
   buildPanelPayload,
   createTempVoice,
   applyVoiceChannelSettings,
-  deleteIfOwnerEmpty
+  deleteIfOwnerEmpty,
+  defaultPrivateRoomChannelName,
+  resolvePrivateRoomDisplayName,
+  resolvePrivateRoomNameFromPrefs
 };

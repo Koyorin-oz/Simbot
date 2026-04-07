@@ -22,7 +22,8 @@ const {
   loadPrefs,
   savePrefs,
   parseIdList,
-  safeJsonParseArray
+  safeJsonParseArray,
+  resolvePrivateRoomNameFromPrefs
 } = require("../services/privateRoomService");
 const {
   TICKET_ACCESS_ROLE_ID,
@@ -468,7 +469,10 @@ async function handleTicketInteractions(client, interaction) {
   return false;
 }
 
-function buildCreateModal(prefs, ownerId, hasExistingChannel = false) {
+function buildCreateModal(prefs, ownerId, hasExistingChannel = false, member = null) {
+  const defaultName = member
+    ? resolvePrivateRoomNameFromPrefs(member, prefs.defaultName)
+    : String(prefs.defaultName || "Salon vocal").trim().slice(0, 100) || "Salon vocal";
   const modal = new ModalBuilder()
     .setCustomId(`prv_create_modal:${ownerId}`)
     .setTitle(hasExistingChannel ? "Configurer ton salon vocal" : "Creer ton salon vocal");
@@ -478,7 +482,7 @@ function buildCreateModal(prefs, ownerId, hasExistingChannel = false) {
         .setCustomId("pr_name")
         .setLabel("Nom du salon")
         .setStyle(TextInputStyle.Short)
-        .setValue(prefs.defaultName?.slice(0, 100) || "Salon vocal")
+        .setValue(defaultName)
         .setRequired(true)
     ),
     new ActionRowBuilder().addComponents(
@@ -528,7 +532,7 @@ async function applySessionVoiceFromPrefs(client, prisma, guildId, ownerId, memb
   if (!s?.voiceChannelId) return { ok: true, skipped: true };
   const prefs = await loadPrefs(prisma, guildId, ownerId);
   return applyVoiceChannelSettings(client, prisma, member, s.voiceChannelId, {
-    name: prefs.defaultName || "Salon vocal",
+    name: resolvePrivateRoomNameFromPrefs(member, prefs.defaultName),
     limit: Number.isFinite(Number(prefs.defaultLimit)) ? Number(prefs.defaultLimit) : 0,
     mode: normalizePrivateRoomMode(prefs.defaultMode),
     blacklistIds: safeJsonParseArray(prefs.blacklistIds),
@@ -551,6 +555,7 @@ async function handlePrivateRoomInteractions(client, interaction) {
 
     if (prefix === "prv_create") {
       const prefs = await loadPrefs(client.prisma, interaction.guildId, ownerId);
+      const member = await interaction.guild.members.fetch(ownerId).catch(() => interaction.member);
       const s = client.privateRoomSessions?.get(`${interaction.guildId}:${ownerId}`);
       let hasExistingChannel = false;
       if (s?.voiceChannelId) {
@@ -558,7 +563,7 @@ async function handlePrivateRoomInteractions(client, interaction) {
         hasExistingChannel = Boolean(ch?.isVoiceBased?.());
         if (!hasExistingChannel) s.voiceChannelId = null;
       }
-      await interaction.showModal(buildCreateModal(prefs, ownerId, hasExistingChannel));
+      await interaction.showModal(buildCreateModal(prefs, ownerId, hasExistingChannel, member));
       return true;
     }
 

@@ -1,5 +1,12 @@
 const config = require("../../config");
-const { deleteIfOwnerEmpty, loadPrefs, safeJsonParseArray, createTempVoice, getOrInitSession } = require("../../services/privateRoomService");
+const {
+  deleteIfOwnerEmpty,
+  loadPrefs,
+  safeJsonParseArray,
+  createTempVoice,
+  getOrInitSession,
+  resolvePrivateRoomNameFromPrefs
+} = require("../../services/privateRoomService");
 const { sendModLog, baseEmbed } = require("../../services/modLogService");
 const { isFrozen } = require("../../services/simbotRuntimeService");
 
@@ -42,7 +49,7 @@ module.exports = {
         const modeMap = { open: "open", blacklist: "blacklist", whitelist: "whitelist", both: "both" };
         const mode = modeMap[modeRaw] || "open";
         await createTempVoice(client, client.prisma, member, {
-          name: prefs.defaultName || "Salon vocal",
+          name: resolvePrivateRoomNameFromPrefs(member, prefs.defaultName),
           limit,
           mode,
           blacklistIds: safeJsonParseArray(prefs.blacklistIds),
