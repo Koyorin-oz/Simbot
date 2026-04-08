@@ -478,7 +478,14 @@ function applySetupToRuntimeConfig(setup) {
   }
   if (setup.ticketCategoryId) config.tickets.categoryId = setup.ticketCategoryId;
   if (setup.ticketPanelChannelId) config.tickets.panelChannelId = setup.ticketPanelChannelId;
-  if (setup.lobbyChannelId) config.privateRoom.lobbyChannelId = setup.lobbyChannelId;
+  if (setup.lobbyChannelId) {
+    config.privateRoom.lobbyChannelId = setup.lobbyChannelId;
+    if (!Array.isArray(config.privateRoom.lobbyChannelIds)) config.privateRoom.lobbyChannelIds = [];
+    const lid = String(setup.lobbyChannelId);
+    if (!config.privateRoom.lobbyChannelIds.includes(lid)) {
+      config.privateRoom.lobbyChannelIds.unshift(lid);
+    }
+  }
   if (setup.voiceCategoryId) config.privateRoom.voiceCategoryId = setup.voiceCategoryId;
   if (setup.panelTextChannelId !== undefined && setup.panelTextChannelId !== null) {
     config.privateRoom.panelTextChannelId = setup.panelTextChannelId || "";
@@ -506,6 +513,7 @@ function resetRuntimeChannelConfigNoSetup() {
   config.tickets.categoryId = "1488047230039625829";
   config.tickets.panelChannelId = "740157072158621736";
   config.privateRoom.lobbyChannelId = "1486092416896209098";
+  config.privateRoom.lobbyChannelIds = ["1486092416896209098", "1405664011655315456"];
   config.privateRoom.voiceCategoryId = "735856720751886437";
   config.privateRoom.panelTextChannelId = "";
   config.suggestions.channelId = "1386016926475489442";

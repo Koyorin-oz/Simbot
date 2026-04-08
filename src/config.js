@@ -21,6 +21,29 @@ function loadChannelSetupForGuild() {
 
 const ch = loadChannelSetupForGuild();
 
+/**
+ * Vocaux-lobby qui declenchent la creation d'un salon prive (plusieurs IDs possibles).
+ * Sur La Carminauté : deux lobbies historiques reconnus ; surcharge avec PRIVATE_ROOM_LOBBY_IDS.
+ */
+function buildPrivateRoomLobbyChannelIds() {
+  const set = new Set();
+  const add = (x) => {
+    const s = String(x || "").trim();
+    if (/^\d{17,20}$/.test(s)) set.add(s);
+  };
+  add(ch.lobbyChannelId);
+  for (const p of String(process.env.PRIVATE_ROOM_LOBBY_IDS || "").split(/[,;\s]+/)) add(p);
+  add(process.env.PRIVATE_ROOM_LOBBY_CHANNEL_ID);
+  if (String(GUILD_ID) === String(MAIN_GUILD_ID)) {
+    add("1486092416896209098");
+    add("1405664011655315456");
+  }
+  if (set.size === 0) add("1486092416896209098");
+  return [...set];
+}
+
+const privateRoomLobbyChannelIds = buildPrivateRoomLobbyChannelIds();
+
 module.exports = {
   /** ID fixe du serveur principal (surchargé par .env pour un serveur de test si besoin). */
   mainGuildId: MAIN_GUILD_ID,
@@ -198,7 +221,14 @@ module.exports = {
   /** Salons vocaux temporaires : rejoindre le lobby = creation auto du vocal prive + chat associe. */
   privateRoom: {
     enabled: true,
-    lobbyChannelId: ch.lobbyChannelId || "1486092416896209098",
+    /** ID affiche dans les panneaux (mention du lobby principal). */
+    lobbyChannelId:
+      ch.lobbyChannelId ||
+      String(process.env.PRIVATE_ROOM_LOBBY_CHANNEL_ID || "").trim() ||
+      privateRoomLobbyChannelIds[0] ||
+      "1486092416896209098",
+    /** Tous les salons vocaux-lobby qui declenchent creation + deplacement + panneau. */
+    lobbyChannelIds: privateRoomLobbyChannelIds,
     /** Categorie parente des vocaux prives crees par le bot (lobby + salons crees). */
     voiceCategoryId: ch.voiceCategoryId || "735856720751886437",
     /** Salon texte de panneau (legacy /voc-panel, optionnel). */

@@ -20,12 +20,18 @@ module.exports = {
   async execute(client, oldState, newState) {
     if (isFrozen()) return;
     const member = newState.member;
-    if (
+    const pr = config.privateRoom;
+    const lobbyIds = new Set(
+      [...(pr?.lobbyChannelIds || []), pr?.lobbyChannelId].filter(Boolean).map(String)
+    );
+    const joinedLobby =
       member &&
       !member.user?.bot &&
       oldState.channelId !== newState.channelId &&
-      String(newState.channelId || "") === String(config.privateRoom?.lobbyChannelId || "")
-    ) {
+      newState.channelId &&
+      lobbyIds.has(String(newState.channelId));
+
+    if (joinedLobby && pr?.enabled) {
       const session = await getOrInitSession(client, newState.guild.id, member.id);
       let hasActiveVoice = false;
       if (session.voiceChannelId) {
@@ -48,13 +54,20 @@ module.exports = {
         const modeRaw = String(prefs.defaultMode || "open").toLowerCase();
         const modeMap = { open: "open", blacklist: "blacklist", whitelist: "whitelist", both: "both" };
         const mode = modeMap[modeRaw] || "open";
-        await createTempVoice(client, client.prisma, member, {
-          name: resolvePrivateRoomNameFromPrefs(member, prefs.defaultName),
-          limit,
-          mode,
-          blacklistIds: safeJsonParseArray(prefs.blacklistIds),
-          whitelistIds: safeJsonParseArray(prefs.whitelistIds)
-        }).catch(() => null);
+        try {
+          const created = await createTempVoice(client, client.prisma, member, {
+            name: resolvePrivateRoomNameFromPrefs(member, prefs.defaultName),
+            limit,
+            mode,
+            blacklistIds: safeJsonParseArray(prefs.blacklistIds),
+            whitelistIds: safeJsonParseArray(prefs.whitelistIds)
+          });
+          if (!created?.ok) {
+            console.error("[PRIVATE_ROOM] createTempVoice:", created?.error || "erreur inconnue");
+          }
+        } catch (e) {
+          console.error("[PRIVATE_ROOM] createTempVoice exception:", e?.message || e);
+        }
       }
     }
 
