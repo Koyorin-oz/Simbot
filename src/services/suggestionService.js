@@ -1,29 +1,40 @@
 const {
-  ContainerBuilder,
-  TextDisplayBuilder,
-  SeparatorBuilder,
+  EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  MessageFlags,
-  SeparatorSpacingSize,
   PermissionFlagsBits
 } = require("discord.js");
-const { MediaGalleryBuilder, MediaGalleryItemBuilder } = require("@discordjs/builders");
 const config = require("../config");
-const { ACCENT_COLOR } = require("../utils/componentsV2Panels");
 const { ensureSuggestionsChannel } = require("./channelBootstrapService");
 
 const VOTE_PREFIX = "sg_vote";
 
-/** Format boutons : sg_vote:<id numerique>:up|down */
+/** Barre gauche embed : rouge si majorite de contre, vert-jaune si leger exces de pour, etc. */
+function suggestionAccentFromVotes(up, down) {
+  const t = up + down;
+  if (t === 0) return 0x9c2634;
+  const p = up / t;
+  if (p < 0.35) return 0xed4245;
+  if (p < 0.48) return 0xe53935;
+  if (p < 0.52) return 0xffb74d;
+  if (p <= 0.68) return 0xdce775;
+  return 0xaed581;
+}
+
+/** Format boutons : sg_vote:<id>:up|down|neutral|react */
 function parseSuggestionVoteCustomId(customId) {
   if (!customId || !String(customId).startsWith(`${VOTE_PREFIX}:`)) return null;
   const parts = String(customId).split(":");
   if (parts.length !== 3) return null;
   const suggestionId = Number(parts[1]);
   const dir = parts[2];
-  if (!Number.isInteger(suggestionId) || (dir !== "up" && dir !== "down")) return null;
+  if (
+    !Number.isInteger(suggestionId) ||
+    (dir !== "up" && dir !== "down" && dir !== "neutral" && dir !== "react")
+  ) {
+    return null;
+  }
   return { suggestionId, dir };
 }
 
@@ -81,19 +92,21 @@ async function getVoteCounts(prisma, suggestionId) {
   const rows = await prisma.suggestionVote.findMany({ where: { suggestionId } });
   let up = 0;
   let down = 0;
+  let neutral = 0;
   for (const r of rows) {
     if (r.value === 1) up += 1;
     else if (r.value === -1) down += 1;
+    else if (r.value === 0) neutral += 1;
   }
-  return { up, down };
+  return { up, down, neutral };
 }
 
 /**
- * Un membre = au plus un vote par suggestion. Clic sur l’autre bouton = changement d’avis.
- * Re-clic sur le même bouton = rien (pas de double vote, pas de retrait du vote).
+ * Un membre = au plus un vote par suggestion. Clic sur un autre bouton = changement d’avis.
+ * Re-clic sur le même bouton = rien.
  */
 async function applyVote(prisma, suggestionId, userId, direction) {
-  const val = direction === "up" ? 1 : -1;
+  const val = direction === "up" ? 1 : direction === "down" ? -1 : 0;
   const existing = await prisma.suggestionVote.findUnique({
     where: { suggestionId_userId: { suggestionId, userId } }
   });
@@ -110,87 +123,79 @@ async function applyVote(prisma, suggestionId, userId, direction) {
 }
 
 /**
- * @param {{ pingRoleId?: string }} [opts] — avec Components V2, pas de `content` : mention du role en TextDisplay.
+ * @param {{ up: number, down: number, neutral?: number }} counts
+ * @param {{ pingRoleId?: string, footerIconURL?: string|null }} [opts]
  */
-function buildSuggestionMessagePayload(suggestion, up, down, opts = {}) {
+function buildSuggestionMessagePayload(suggestion, counts, opts = {}) {
+  const up = Number(counts.up) || 0;
+  const down = Number(counts.down) || 0;
+  const neutral = Number(counts.neutral) || 0;
   const { id, authorId, title, body, imageUrl } = suggestion;
   const titleSafe = sanitizeSnippet(title, 200);
-  const bodySafe = sanitizeSnippet(body, 3800);
+  const bodySafe = sanitizeSnippet(body, 3500);
   const pingRoleId = String(opts.pingRoleId || "").trim();
+  const footerIcon = opts.footerIconURL || undefined;
 
-  const container = new ContainerBuilder().setAccentColor(ACCENT_COLOR);
+  const color = suggestionAccentFromVotes(up, down);
+  const descParts = [
+    `## :bulb: ${titleSafe}`,
+    "",
+    bodySafe,
+    "",
+    `**Auteur** : <@${authorId}>`
+  ];
+  if (neutral > 0) descParts.push("", `_Neutre · ${neutral}_`);
+  descParts.push("", "_Vote avec les boutons ci-dessous._");
+  const desc = descParts.join("\n").slice(0, 4090);
 
-  if (pingRoleId) {
-    container
-      .addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`<@&${pingRoleId}>\n**Nouvelle suggestion**`)
-      )
-      .addSeparatorComponents(
-        new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Large)
-      );
-  }
+  const embed = new EmbedBuilder()
+    .setColor(color)
+    .setDescription(desc)
+    .setFooter({ text: "La Carminauté", iconURL: footerIcon })
+    .setTimestamp(new Date());
 
-  container
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`## :bulb: ${titleSafe}\n\n${bodySafe}`)
-    )
-    .addSeparatorComponents(
-      new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Large)
-    );
+  if (imageUrl) embed.setImage(imageUrl);
 
-  if (imageUrl) {
-    container.addMediaGalleryComponents(
-      new MediaGalleryBuilder().addItems(
-        new MediaGalleryItemBuilder()
-          .setDescription(sanitizeSnippet(titleSafe, 80) || "Illustration")
-          .setURL(imageUrl)
-      )
-    );
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-  }
-
-  container
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(
-        [
-          `**Auteur** : <@${authorId}>`,
-          "",
-          "_Vote avec les boutons — les réactions emoji sont désactivées dans ce salon._"
-        ].join("\n")
-      )
-    )
-    .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-    .addActionRowComponents(
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`${VOTE_PREFIX}:${id}:up`)
-          .setLabel(`Pour · ${up}`)
-          .setEmoji("👍")
-          .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
-          .setCustomId(`${VOTE_PREFIX}:${id}:down`)
-          .setLabel(`Contre · ${down}`)
-          .setEmoji("👎")
-          .setStyle(ButtonStyle.Secondary)
-      )
-    );
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${VOTE_PREFIX}:${id}:up`)
+      .setLabel(`Pour · ${up}`)
+      .setEmoji("✅")
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`${VOTE_PREFIX}:${id}:neutral`)
+      .setLabel(`Neutre · ${neutral}`)
+      .setEmoji("➖")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`${VOTE_PREFIX}:${id}:down`)
+      .setLabel(`Contre · ${down}`)
+      .setEmoji("❌")
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId(`${VOTE_PREFIX}:${id}:react`)
+      .setLabel("Réagir")
+      .setEmoji("😊")
+      .setStyle(ButtonStyle.Secondary)
+  );
 
   const allowedMentions = { parse: [], users: [authorId] };
   if (pingRoleId) allowedMentions.roles = [pingRoleId];
 
-  return {
-    components: [container],
-    flags: MessageFlags.IsComponentsV2 | MessageFlags.SuppressEmbeds,
-    embeds: [],
+  const out = {
+    embeds: [embed],
+    components: [row],
     allowedMentions
   };
+  if (pingRoleId) {
+    out.content = `<@&${pingRoleId}>\n**Nouvelle suggestion**`;
+  }
+  return out;
 }
 
-/** Alias : publication avec ping (meme structure que les mises a jour de votes si le meme pingRoleId est passe). */
-function buildSuggestionPostPayload(suggestion, up, down, opts = {}) {
-  return buildSuggestionMessagePayload(suggestion, up, down, {
-    pingRoleId: opts.pingRoleId
-  });
+/** @param {{ pingRoleId?: string, footerIconURL?: string|null }} [opts] */
+function buildSuggestionPostPayload(suggestion, counts, opts = {}) {
+  return buildSuggestionMessagePayload(suggestion, counts, opts);
 }
 
 /**
@@ -219,6 +224,9 @@ async function submitNewSuggestion(client, interaction, { title, body, imageUrl 
   }
 
   const canThread = botPerms.has(PermissionFlagsBits.CreatePublicThreads);
+  if (!botPerms.has(PermissionFlagsBits.EmbedLinks)) {
+    return { ok: false, error: "Le bot doit pouvoir **integrer des liens** dans le salon suggestions." };
+  }
 
   let row;
   try {
@@ -238,7 +246,11 @@ async function submitNewSuggestion(client, interaction, { title, body, imageUrl 
   }
 
   const pingRoleId = String(config.suggestions?.pingRoleId || "").trim();
-  const payload = buildSuggestionPostPayload(row, 0, 0, { pingRoleId });
+  const footerIconURL = guild.iconURL({ extension: "png", size: 64 }) || null;
+  const payload = buildSuggestionPostPayload(row, { up: 0, down: 0, neutral: 0 }, {
+    pingRoleId,
+    footerIconURL
+  });
 
   let msg;
   try {

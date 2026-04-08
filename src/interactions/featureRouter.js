@@ -744,6 +744,17 @@ async function handleSuggestionInteractions(client, interaction) {
     const parsed = parseSuggestionVoteCustomId(interaction.customId);
     if (!parsed) return false;
 
+    if (parsed.dir === "react") {
+      await interaction
+        .reply({
+          content:
+            "Pour **commenter**, utilise le **fil de discussion** sous ce message (bouton ou fil créé automatiquement à la publication).",
+          flags: MessageFlags.Ephemeral
+        })
+        .catch(() => null);
+      return true;
+    }
+
     if (interaction.user.bot) {
       await interaction.reply({ content: "Les bots ne votent pas.", flags: MessageFlags.Ephemeral }).catch(() => null);
       return true;
@@ -783,15 +794,21 @@ async function handleSuggestionInteractions(client, interaction) {
       await applyVote(client.prisma, suggestionId, interaction.user.id, dir);
       const counts = await getVoteCounts(client.prisma, suggestionId);
       const pingRoleId = String(config.suggestions?.pingRoleId || "").trim();
-      const payload = buildSuggestionMessagePayload(suggestion, counts.up, counts.down, { pingRoleId });
+      const footerIconURL =
+        interaction.guild?.iconURL({ extension: "png", size: 64 }) || null;
+      const payload = buildSuggestionMessagePayload(suggestion, counts, {
+        pingRoleId,
+        footerIconURL
+      });
 
       if (interaction.message?.editable) {
-        await interaction.message.edit({
+        const editOpts = {
           components: payload.components,
-          flags: payload.flags,
           embeds: payload.embeds ?? [],
           allowedMentions: payload.allowedMentions
-        });
+        };
+        if (payload.content != null) editOpts.content = payload.content;
+        await interaction.message.edit(editOpts);
       }
     } catch (e) {
       await interaction

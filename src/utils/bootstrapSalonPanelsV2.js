@@ -115,7 +115,7 @@ function buildBootstrapSuggestionsIntroV2() {
         new TextDisplayBuilder().setContent(
           [
             "• Utilise **`/suggestion`** (titre + texte ; image en **lien** ou **piece jointe**) — un fil de discussion s’ouvre sous le message.",
-            "• **Vote** avec les boutons sous chaque idée — pas d’emoji-réactions.",
+            "• **Vote** : Pour / Neutre / Contre ; la **couleur** du message change selon les votes (rouge si majorité de contre, vert-jaune si majorité de pour).",
             "• Les **membres vérifiés** lisent et votent ; le **staff** peut commenter ici."
           ].join("\n")
         )
