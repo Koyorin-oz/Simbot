@@ -106,7 +106,10 @@ module.exports = {
         await interaction.reply({ content: v.error, flags: MessageFlags.Ephemeral });
         return;
       }
-      const joined = await musicService.joinChannel(interaction.guild, v.channel);
+      const joined = await musicService.joinChannel(interaction.guild, v.channel, {
+        member: interaction.member,
+        client
+      });
       if (joined.error) {
         await interaction.reply({ content: joined.error, flags: MessageFlags.Ephemeral });
         return;

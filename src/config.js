@@ -185,7 +185,14 @@ module.exports = {
     enabled: String(process.env.MUSIC_ENABLED || "true").toLowerCase() !== "false",
     maxPlaylistTracks: Math.min(50, Math.max(5, Number(process.env.MUSIC_MAX_PLAYLIST_TRACKS) || 25)),
     spotifyClientId: String(process.env.SPOTIFY_CLIENT_ID || "").trim(),
-    spotifyClientSecret: String(process.env.SPOTIFY_CLIENT_SECRET || "").trim()
+    spotifyClientSecret: String(process.env.SPOTIFY_CLIENT_SECRET || "").trim(),
+    /**
+     * Dans un vocal prive cree par le bot : seul l’owner du salon peut lancer la musique ;
+     * ce role bypass (staff). Surcharge : MUSIC_PRIVATE_ROOM_STAFF_ROLE_ID
+     */
+    privateRoomStaffBypassRoleId: String(
+      process.env.MUSIC_PRIVATE_ROOM_STAFF_ROLE_ID || "740999121812586567"
+    ).trim()
   },
 
   /** Salons vocaux temporaires : rejoindre le lobby = creation auto du vocal prive + chat associe. */

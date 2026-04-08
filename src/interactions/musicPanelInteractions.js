@@ -66,7 +66,10 @@ async function runPlayQueryFlow(interaction, client, opts) {
     await interaction.editReply({ content: v.error });
     return;
   }
-  const joined = await musicService.joinChannel(interaction.guild, v.channel);
+  const joined = await musicService.joinChannel(interaction.guild, v.channel, {
+    member: interaction.member,
+    client
+  });
   if (joined.error) {
     await interaction.editReply({ content: joined.error });
     return;
@@ -153,7 +156,10 @@ async function handleMusicPanelInteractions(client, interaction) {
         await interaction.reply({ content: v.error, flags: MessageFlags.Ephemeral });
         return true;
       }
-      const j = await musicService.joinChannel(interaction.guild, v.channel);
+      const j = await musicService.joinChannel(interaction.guild, v.channel, {
+        member: interaction.member,
+        client
+      });
       await interaction.reply({
         content: j.error || `Connecte dans **${v.channel.name}**.`,
         flags: MessageFlags.Ephemeral
@@ -300,7 +306,10 @@ async function handleMusicPanelInteractions(client, interaction) {
         await interaction.editReply({ content: v.error, components: [] }).catch(() => null);
         return true;
       }
-      const j = await musicService.joinChannel(interaction.guild, v.channel);
+      const j = await musicService.joinChannel(interaction.guild, v.channel, {
+        member: interaction.member,
+        client
+      });
       if (j.error) {
         await interaction.editReply({ content: j.error, components: [] }).catch(() => null);
         return true;
@@ -352,7 +361,10 @@ async function handleMusicPanelInteractions(client, interaction) {
         await interaction.editReply({ content: v.error, components: [] }).catch(() => null);
         return true;
       }
-      const j = await musicService.joinChannel(interaction.guild, v.channel);
+      const j = await musicService.joinChannel(interaction.guild, v.channel, {
+        member: interaction.member,
+        client
+      });
       if (j.error) {
         await interaction.editReply({ content: j.error, components: [] }).catch(() => null);
         return true;
@@ -403,7 +415,10 @@ async function handleMusicPanelInteractions(client, interaction) {
         await interaction.editReply({ content: v.error });
         return true;
       }
-      const j = await musicService.joinChannel(interaction.guild, v.channel);
+      const j = await musicService.joinChannel(interaction.guild, v.channel, {
+        member: interaction.member,
+        client
+      });
       if (j.error) {
         await interaction.editReply({ content: j.error });
         return true;

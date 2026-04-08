@@ -630,7 +630,10 @@ async function handlePrivateRoomInteractions(client, interaction) {
           await interaction.editReply({ content: v.error });
           return true;
         }
-        const j = await musicService.joinChannel(interaction.guild, v.channel);
+        const j = await musicService.joinChannel(interaction.guild, v.channel, {
+          member: interaction.member,
+          client
+        });
         if (j.error) await interaction.editReply({ content: j.error });
         else await interaction.editReply({ content: `Connecte dans **${v.channel.name}**.` });
         return true;
@@ -675,7 +678,10 @@ async function handlePrivateRoomInteractions(client, interaction) {
           await interaction.editReply({ content: v.error });
           return true;
         }
-        const j = await musicService.joinChannel(interaction.guild, v.channel);
+        const j = await musicService.joinChannel(interaction.guild, v.channel, {
+          member: interaction.member,
+          client
+        });
         if (j.error) {
           await interaction.editReply({ content: j.error });
           return true;

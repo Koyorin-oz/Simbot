@@ -67,6 +67,42 @@ function getVoiceForPrivatePanel(member, client, guildId, ownerId) {
   return base;
 }
 
+/**
+ * Vocal enregistre comme salon prive (session bot) → retourne l’userId owner.
+ */
+function getPrivateRoomOwnerIdForVoiceChannel(client, guildId, voiceChannelId) {
+  if (!client?.privateRoomSessions || !voiceChannelId) return null;
+  const g = String(guildId);
+  const vc = String(voiceChannelId);
+  for (const [key, s] of client.privateRoomSessions.entries()) {
+    if (!key.startsWith(`${g}:`)) continue;
+    if (String(s?.voiceChannelId || "") !== vc) continue;
+    const ownerId = key.slice(g.length + 1);
+    if (/^\d{17,20}$/.test(ownerId)) return ownerId;
+  }
+  return null;
+}
+
+function memberHasPrivateRoomMusicBypass(member) {
+  const roleId = String(config.music?.privateRoomStaffBypassRoleId || "").trim();
+  return Boolean(roleId && member?.roles?.cache?.has(roleId));
+}
+
+/**
+ * Si le membre est dans un vocal prive du bot : owner ou staff bypass uniquement.
+ */
+function assertPrivateRoomMusicAccess(member, client, guildId, channel) {
+  if (!member || !channel?.id) return { ok: true };
+  if (memberHasPrivateRoomMusicBypass(member)) return { ok: true };
+  const ownerId = getPrivateRoomOwnerIdForVoiceChannel(client, guildId, channel.id);
+  if (!ownerId) return { ok: true };
+  if (member.id === ownerId) return { ok: true };
+  return {
+    error:
+      "Seul le **proprietaire** de ce salon vocal prive peut lancer la musique ici. Les **membres staff** (role configure) peuvent aussi, sans limite."
+  };
+}
+
 async function getSpotifyToken() {
   const cid = config.music?.spotifyClientId;
   const sec = config.music?.spotifyClientSecret;
@@ -374,10 +410,16 @@ function ensurePlayer(guild) {
 /**
  * @param {import('discord.js').Guild} guild
  * @param {import('discord.js').VoiceBasedChannel} channel
+ * @param {{ member?: import('discord.js').GuildMember, client?: import('discord.js').Client }} [options]
  */
-async function joinChannel(guild, channel) {
+async function joinChannel(guild, channel, options = {}) {
   if (!loadDeps()) {
     return { error: loadErr?.message ? `Module musique indisponible : ${loadErr.message}` : "Module musique indisponible." };
+  }
+  const { member, client } = options;
+  if (member && client) {
+    const gate = assertPrivateRoomMusicAccess(member, client, guild.id, channel);
+    if (gate.error) return { error: gate.error };
   }
   const {
     joinVoiceChannel,
@@ -595,6 +637,7 @@ module.exports = {
   loadDeps,
   getVoiceChannelForMember,
   getVoiceForPrivatePanel,
+  assertPrivateRoomMusicAccess,
   joinChannel,
   leaveGuild,
   skipGuild,
