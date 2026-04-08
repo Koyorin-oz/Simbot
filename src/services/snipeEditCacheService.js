@@ -38,13 +38,10 @@ function summarizeAttachments(attachments) {
 }
 
 /**
+ * Texte + pieces jointes pour snipe / logs (messages partiels possibles).
  * @param {import("discord.js").Message | import("discord.js").PartialMessage} message
  */
-function recordDeletedMessage(message) {
-  if (!message.guild) return;
-  const author = message.author;
-  if (author && author.bot) return;
-
+function buildMessageSnapshot(message) {
   const rawContent = typeof message.content === "string" ? message.content : "";
   const att = summarizeAttachments(message.attachments);
   let content = rawContent.trim();
@@ -54,6 +51,18 @@ function recordDeletedMessage(message) {
   } else if (att) {
     content = `${content}\n${att}`;
   }
+  return content;
+}
+
+/**
+ * @param {import("discord.js").Message | import("discord.js").PartialMessage} message
+ */
+function recordDeletedMessage(message) {
+  if (!message.guild) return;
+  const author = message.author;
+  if (author && author.bot) return;
+
+  const content = buildMessageSnapshot(message);
 
   const tag = author ? author.tag : "Utilisateur inconnu";
   const authorId = author?.id || (typeof message.authorId === "string" ? message.authorId : "0");
@@ -80,14 +89,17 @@ function recordDeletedMessage(message) {
  * @param {import("discord.js").Message | import("discord.js").PartialMessage} oldMessage
  * @param {import("discord.js").Message} newMessage
  */
+/**
+ * @returns {boolean} true si une edition utile a ete enregistree
+ */
 function recordEditedMessage(oldMessage, newMessage) {
-  if (!newMessage.guild) return;
+  if (!newMessage.guild) return false;
   const author = newMessage.author;
-  if (author?.bot) return;
+  if (author?.bot) return false;
 
   const before = typeof oldMessage.content === "string" ? oldMessage.content : "";
   const after = typeof newMessage.content === "string" ? newMessage.content : "";
-  if (before === after) return;
+  if (before === after) return false;
 
   const b = before.trim() || "(vide)";
   const a = after.trim() || "(vide)";
@@ -102,6 +114,7 @@ function recordEditedMessage(oldMessage, newMessage) {
     editedTimestamp: newMessage.editedTimestamp || Date.now()
   };
   lastEditByChannel.set(newMessage.channelId, entry);
+  return true;
 }
 
 /**
@@ -124,6 +137,7 @@ function getLastEdit(channelId) {
 
 module.exports = {
   MAX_SNIPE,
+  buildMessageSnapshot,
   recordDeletedMessage,
   recordEditedMessage,
   getSnipes,

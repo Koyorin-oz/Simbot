@@ -1,4 +1,5 @@
 const { recordEditedMessage } = require("../../services/snipeEditCacheService");
+const { logMessageEdited } = require("../../services/modLogService");
 
 module.exports = {
   name: "messageUpdate",
@@ -8,6 +9,11 @@ module.exports = {
     if (oldMessage.partial) {
       oldM = await oldMessage.fetch().catch(() => oldMessage);
     }
-    recordEditedMessage(oldM, newMessage);
+    const recorded = recordEditedMessage(oldM, newMessage);
+    if (recorded) {
+      await logMessageEdited(oldM, newMessage).catch((e) =>
+        console.warn("[MODLOG] messageUpdate", e?.message || e)
+      );
+    }
   }
 };
