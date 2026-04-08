@@ -1,20 +1,26 @@
 const { SlashCommandBuilder, MessageFlags } = require("discord.js");
-const config = require("../../config");
+const { buildMusicPanelPayload } = require("../../utils/musicPanel");
+const { runPlayQueryFlow } = require("../../interactions/musicPanelInteractions");
 const { loadPrefs, savePrefs } = require("../../services/privateRoomService");
 const musicService = require("../../services/musicService");
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("music")
-    .setDescription("Musique dans le vocal (YouTube, recherche, liens Spotify publics)")
+    .setDescription("Musique dans le vocal (panneau, YouTube, Spotify, historique)")
+    .addSubcommand((s) =>
+      s
+        .setName("panneau")
+        .setDescription("Ouvrir le grand panneau musique (orange) — recherche, liens, historique")
+    )
     .addSubcommand((s) => s.setName("join").setDescription("Faire rejoindre le bot dans ton salon vocal"))
     .addSubcommand((s) => s.setName("leave").setDescription("Arreter la musique et faire quitter le bot du vocal"))
     .addSubcommand((s) =>
       s
         .setName("play")
-        .setDescription("Ajouter un morceau (lien YouTube / Spotify ou mots-cles)")
+        .setDescription("Recherche ou lien : liste des tops resultats si ce n'est pas une URL")
         .addStringOption((o) =>
-          o.setName("requete").setDescription("URL ou recherche").setRequired(true).setMaxLength(400)
+          o.setName("requete").setDescription("URL ou mots-cles (ex. artiste + titre)").setRequired(true).setMaxLength(400)
         )
     )
     .addSubcommand((s) => s.setName("skip").setDescription("Passer au morceau suivant"))
@@ -45,6 +51,11 @@ module.exports = {
 
     const sub = interaction.options.getSubcommand();
 
+    if (sub === "panneau") {
+      await interaction.reply(buildMusicPanelPayload(interaction.user.id));
+      return;
+    }
+
     if (sub === "definir-lien") {
       const raw = interaction.options.getString("lien");
       const lien = raw != null ? String(raw).trim().slice(0, 500) : "";
@@ -52,7 +63,7 @@ module.exports = {
       await savePrefs(client.prisma, interaction.guildId, interaction.user.id, { musicSpotifyUrl: lien });
       await interaction.reply({
         content: lien
-          ? "Lien enregistre. Utilise **Ma playlist** sur ton panneau vocal ou `/music play` avec le meme lien."
+          ? "Lien enregistre. Utilise **Ma playlist** sur ton panneau vocal ou le panneau **Enregistrer lien Spotify**."
           : "Lien efface.",
         flags: MessageFlags.Ephemeral
       });
@@ -101,7 +112,7 @@ module.exports = {
         return;
       }
       await interaction.reply({
-        content: `Connecte dans ${v.channel.name}. Utilise \`/music play\` pour lancer un morceau.`,
+        content: `Connecte dans ${v.channel.name}. Utilise \`/music play\` ou \`/music panneau\`.`,
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -110,31 +121,11 @@ module.exports = {
     if (sub === "play") {
       const requete = interaction.options.getString("requete", true);
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-      const v = musicService.getVoiceChannelForMember(interaction.member);
-      if (v.error) {
-        await interaction.editReply({ content: v.error });
-        return;
-      }
-
-      const joined = await musicService.joinChannel(interaction.guild, v.channel);
-      if (joined.error) {
-        await interaction.editReply({ content: joined.error });
-        return;
-      }
-
-      const enq = await musicService.enqueueQuery(interaction.guild, requete, interaction.user.id);
-      if (enq.error) {
-        await interaction.editReply({ content: enq.error });
-        return;
-      }
-
-      const first = enq.firstTitle || "Morceau";
-      await interaction.editReply({
-        content:
-          enq.added > 1
-            ? `**${enq.added}** morceaux ajoutes (depuis playlist / album). Premier : **${first}**. En file : **${enq.queueLen}**.`
-            : `En lecture / file : **${first}** (${enq.queueLen} en attente).`
+      await runPlayQueryFlow(interaction, client, {
+        query: requete,
+        prisma: client.prisma,
+        alreadyDeferred: true,
+        getVoice: () => musicService.getVoiceChannelForMember(interaction.member)
       });
     }
   }

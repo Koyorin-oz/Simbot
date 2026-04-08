@@ -45,6 +45,7 @@ const {
   canViewAndVoteSuggestions
 } = require("../services/suggestionService");
 const musicService = require("../services/musicService");
+const { handleMusicPanelInteractions, runPlayQueryFlow } = require("./musicPanelInteractions");
 
 function parsePrvOwner(customId) {
   const m = String(customId).match(/^(.+):(\d{17,20})$/);
@@ -679,7 +680,7 @@ async function handlePrivateRoomInteractions(client, interaction) {
           await interaction.editReply({ content: j.error });
           return true;
         }
-        const enq = await musicService.enqueueQuery(interaction.guild, url, interaction.user.id);
+        const enq = await musicService.enqueueQuery(interaction.guild, url, interaction.user.id, client.prisma);
         if (enq.error) await interaction.editReply({ content: enq.error });
         else {
           const first = enq.firstTitle || "OK";
@@ -855,32 +856,13 @@ async function handlePrivateRoomInteractions(client, interaction) {
       }
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const q = interaction.fields.getTextInputValue("pr_music_query");
-      const v = musicService.getVoiceForPrivatePanel(
-        interaction.member,
-        client,
-        interaction.guildId,
-        ownerId
-      );
-      if (v.error) {
-        await interaction.editReply({ content: v.error });
-        return true;
-      }
-      const j = await musicService.joinChannel(interaction.guild, v.channel);
-      if (j.error) {
-        await interaction.editReply({ content: j.error });
-        return true;
-      }
-      const enq = await musicService.enqueueQuery(interaction.guild, q, interaction.user.id);
-      if (enq.error) await interaction.editReply({ content: enq.error });
-      else {
-        const first = enq.firstTitle || "OK";
-        await interaction.editReply({
-          content:
-            enq.added > 1
-              ? `**${enq.added}** morceaux ajoutes. Premier : **${first}**.`
-              : `Ajoute : **${first}**.`
-        });
-      }
+      await runPlayQueryFlow(interaction, client, {
+        query: q,
+        prisma: client.prisma,
+        alreadyDeferred: true,
+        getVoice: () =>
+          musicService.getVoiceForPrivatePanel(interaction.member, client, interaction.guildId, ownerId)
+      });
       return true;
     }
   }
@@ -977,6 +959,7 @@ async function routeFeatureInteractions(client, interaction) {
   if (await handleWelcomeInteractions(client, interaction)) return true;
   if (await handleTicketInteractions(client, interaction)) return true;
   if (await handlePrivateRoomInteractions(client, interaction)) return true;
+  if (await handleMusicPanelInteractions(client, interaction)) return true;
   if (await handleSuggestionInteractions(client, interaction)) return true;
   return false;
 }

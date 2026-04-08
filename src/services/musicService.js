@@ -211,6 +211,121 @@ async function resolveQueryToYoutubeTracks(query) {
   return { tracks: [{ title: y.title, url: y.url }] };
 }
 
+function isDirectPlayQuery(raw) {
+  const q = String(raw || "").trim();
+  if (!q) return false;
+  if (/open\.spotify\.com\//i.test(q)) return true;
+  if (loadDeps() && ytdl?.validateURL?.(q)) return true;
+  return false;
+}
+
+/**
+ * @returns {Promise<Array<{ kind: string, title: string, url?: string, spotifySearch?: string }>>}
+ */
+async function searchMixedCandidates(query) {
+  if (!loadDeps()) return [];
+  const q = String(query || "").trim();
+  if (!q) return [];
+  const out = [];
+  try {
+    const videos = await YouTube.search(q, { limit: 5, type: "video" });
+    for (const v of videos) {
+      if (v?.url && ytdl.validateURL(v.url)) {
+        out.push({ kind: "youtube", title: v.title || "Video", url: v.url });
+      }
+    }
+  } catch (e) {
+    console.error("[MUSIC] youtube search", e?.message || e);
+  }
+  const token = await getSpotifyToken();
+  if (token) {
+    try {
+      const enc = encodeURIComponent(q);
+      const res = await fetch(`https://api.spotify.com/v1/search?q=${enc}&type=track&limit=5`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const j = await res.json();
+        for (const tr of j.tracks?.items || []) {
+          const meta = spotifyMetaFromTrack(tr);
+          if (meta) {
+            out.push({
+              kind: "spotify",
+              title: meta.title,
+              spotifySearch: meta.searchQuery
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[MUSIC] spotify search", e?.message || e);
+    }
+  }
+  return out;
+}
+
+/**
+ * @param {{ kind: string, title: string, url?: string, spotifySearch?: string }} choice
+ */
+async function resolveCandidateChoice(choice) {
+  if (!loadDeps()) return { error: "Module musique indisponible." };
+  if (choice.url && ytdl.validateURL(choice.url)) {
+    return {
+      title: choice.title,
+      url: choice.url,
+      source: choice.kind === "spotify" ? "spotify_pick" : "youtube_pick"
+    };
+  }
+  if (choice.spotifySearch) {
+    const y = await youtubeSearchOne(choice.spotifySearch);
+    if (y.error) return { error: y.error };
+    return { title: y.title, url: y.url, source: "spotify_resolve" };
+  }
+  return { error: "Choix invalide." };
+}
+
+function guessSourceFromQuery(q) {
+  const s = String(q || "");
+  if (/open\.spotify\.com\/.*playlist/i.test(s)) return "spotify_playlist";
+  if (/open\.spotify\.com\/.*album/i.test(s)) return "spotify_album";
+  if (/open\.spotify\.com\/.*track/i.test(s)) return "spotify_track";
+  return "youtube";
+}
+
+async function recordPlayHistory(prisma, guildId, userId, tracks) {
+  if (!prisma?.musicPlayHistory?.createMany || !tracks.length) return;
+  try {
+    await prisma.musicPlayHistory.createMany({
+      data: tracks.map((t) => ({
+        guildId,
+        userId,
+        title: String(t.title).slice(0, 400),
+        url: String(t.url).slice(0, 400),
+        source: String(t.source || "youtube").slice(0, 40)
+      }))
+    });
+  } catch (e) {
+    console.error("[MUSIC] recordPlayHistory", e?.message || e);
+  }
+}
+
+async function getUserPlayHistoryUnique(prisma, guildId, userId, limit = 25) {
+  const rows = await prisma.musicPlayHistory.findMany({
+    where: { guildId, userId },
+    orderBy: { createdAt: "desc" },
+    take: Math.min(120, limit * 5)
+  });
+  const seen = new Set();
+  const out = [];
+  for (const r of rows) {
+    if (seen.has(r.url)) continue;
+    seen.add(r.url);
+    out.push({ title: r.title, url: r.url, source: r.source });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 async function playNext(guild, failDepth = 0) {
   if (!loadOk || !voiceMod) return;
   if (failDepth > 12) return;
@@ -398,31 +513,55 @@ function formatQueue(guildId, limit = 10) {
 
 /**
  * @param {import('discord.js').Guild} guild
- * @param {string} query
+ * @param {Array<{ title: string, url: string, source?: string }>} tracks
  * @param {string} requesterId
  */
-async function enqueueQuery(guild, query, requesterId) {
+async function enqueueDirectTracks(guild, tracks, requesterId, prisma = null) {
   if (!isEnabled()) return { error: "La musique est desactivee sur ce bot." };
   if (!loadDeps()) {
     return { error: loadErr?.message ? `Module musique : ${loadErr.message}` : "Module musique indisponible." };
   }
-  const resolved = await resolveQueryToYoutubeTracks(query);
-  if (resolved.error) return { error: resolved.error };
+  if (!tracks.length) return { error: "Aucun morceau." };
   const st = getState(guild.id);
   const { AudioPlayerStatus } = voiceMod;
-  for (const t of resolved.tracks) {
+  for (const t of tracks) {
     st.queue.push({ title: t.title, url: t.url, requesterId });
   }
   const status = st.player?.state?.status;
   const idle = !st.player || status === AudioPlayerStatus.Idle;
   if (idle) await playNext(guild);
-  const n = resolved.tracks.length;
+  if (prisma) {
+    await recordPlayHistory(
+      prisma,
+      guild.id,
+      requesterId,
+      tracks.map((t) => ({ title: t.title, url: t.url, source: t.source || "youtube" }))
+    );
+  }
   return {
     ok: true,
-    added: n,
-    firstTitle: resolved.tracks[0]?.title,
+    added: tracks.length,
+    firstTitle: tracks[0]?.title,
     queueLen: st.queue.length
   };
+}
+
+/**
+ * @param {import('discord.js').Guild} guild
+ * @param {string} query
+ * @param {string} requesterId
+ */
+async function enqueueQuery(guild, query, requesterId, prisma = null) {
+  if (!isEnabled()) return { error: "La musique est desactivee sur ce bot." };
+  if (!loadDeps()) {
+    return { error: loadErr?.message ? `Module musique : ${loadErr.message}` : "Module musique indisponible." };
+  }
+  const raw = String(query || "").trim();
+  const resolved = await resolveQueryToYoutubeTracks(raw);
+  if (resolved.error) return { error: resolved.error };
+  const src = guessSourceFromQuery(raw);
+  const tracks = resolved.tracks.map((t) => ({ title: t.title, url: t.url, source: src }));
+  return enqueueDirectTracks(guild, tracks, requesterId, prisma);
 }
 
 function destroyAllConnections() {
@@ -462,7 +601,13 @@ module.exports = {
   stopGuild,
   formatQueue,
   enqueueQuery,
+  enqueueDirectTracks,
   resolveQueryToYoutubeTracks,
+  isDirectPlayQuery,
+  searchMixedCandidates,
+  resolveCandidateChoice,
+  getUserPlayHistoryUnique,
+  recordPlayHistory,
   destroyAllConnections,
   getState
 };

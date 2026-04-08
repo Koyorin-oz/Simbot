@@ -84,6 +84,19 @@ model PrivateRoomPrefs {
   @@unique([guildId, userId])
 }
 
+/** Morceaux ajoutes a la file (historique perso par serveur pour /music). */
+model MusicPlayHistory {
+  id        Int      @id @default(autoincrement())
+  guildId   String
+  userId    String
+  title     String
+  url       String
+  source    String   @default("youtube")
+  createdAt DateTime @default(now())
+
+  @@index([guildId, userId, createdAt])
+}
+
 model Ticket {
   id        Int       @id @default(autoincrement())
   guildId   String
