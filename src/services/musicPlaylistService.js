@@ -2,6 +2,8 @@
 
 /** Capacite max par membre / serveur. */
 const MAX_ITEMS = 60;
+/** Options du menu deroulant (limite Discord). */
+const SELECT_CAP = 25;
 
 /**
  * @param {import('@prisma/client').PrismaClient} prisma
@@ -13,6 +15,60 @@ async function listUserPlaylist(prisma, guildId, userId) {
   return prisma.musicPlaylistItem.findMany({
     where: { guildId: String(guildId), userId: String(userId) },
     orderBy: { sortOrder: "asc" }
+  });
+}
+
+/**
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string} guildId
+ * @param {string} userId
+ * @param {number} itemId
+ */
+async function getOwnedPlaylistItem(prisma, guildId, userId, itemId) {
+  if (!prisma?.musicPlaylistItem?.findFirst) return null;
+  return prisma.musicPlaylistItem.findFirst({
+    where: {
+      id: Number(itemId),
+      guildId: String(guildId),
+      userId: String(userId)
+    }
+  });
+}
+
+/**
+ * Quand un morceau commence (demandeur connu) : ajoute a la playlist si pas deja present (meme URL).
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string} guildId
+ * @param {string} userId
+ * @param {string} title
+ * @param {string} url
+ */
+async function autoAppendPlayedTrack(prisma, guildId, userId, title, url) {
+  if (!prisma?.musicPlaylistItem?.create) return;
+  const gid = String(guildId);
+  const uid = String(userId);
+  if (!/^\d{17,20}$/.test(uid)) return;
+  const u = String(url || "").trim().slice(0, 500);
+  if (!u) return;
+  const exists = await prisma.musicPlaylistItem.findFirst({
+    where: { guildId: gid, userId: uid, url: u }
+  });
+  if (exists) return;
+  const count = await prisma.musicPlaylistItem.count({ where: { guildId: gid, userId: uid } });
+  if (count >= MAX_ITEMS) return;
+  const agg = await prisma.musicPlaylistItem.aggregate({
+    where: { guildId: gid, userId: uid },
+    _max: { sortOrder: true }
+  });
+  const sortOrder = (agg._max.sortOrder ?? 0) + 1;
+  await prisma.musicPlaylistItem.create({
+    data: {
+      guildId: gid,
+      userId: uid,
+      title: String(title).slice(0, 400),
+      url: u,
+      sortOrder
+    }
   });
 }
 
@@ -32,7 +88,7 @@ async function addTracksToUserPlaylist(prisma, guildId, userId, tracks) {
   const room = MAX_ITEMS - count;
   if (room <= 0) {
     return {
-      error: `Playlist pleine (${MAX_ITEMS} titres max). Retire des morceaux avec le menu **Retirer**.`
+      error: `Playlist pleine (${MAX_ITEMS} titres max). Retire des morceaux avec **Retirer**.`
     };
   }
   const toAdd = tracks.slice(0, room);
@@ -87,12 +143,24 @@ async function clearUserPlaylist(prisma, guildId, userId) {
 }
 
 /**
- * Texte + composants pour message ephemere (liste + actions).
+ * @param {Array<{ id: number }>} items
+ * @param {number | null | undefined} selectedItemId
+ */
+function resolveSelectedItemId(items, selectedItemId) {
+  if (!items.length) return null;
+  const sid = Number(selectedItemId);
+  if (Number.isFinite(sid) && items.some((x) => x.id === sid)) return sid;
+  return items[0].id;
+}
+
+/**
+ * Message ephemere : liste complete + menu + actions sur la piste selectionnee.
  * @param {import('@prisma/client').PrismaClient} prisma
  * @param {string} guildId
  * @param {string} userId
+ * @param {number | null} [selectedItemId]
  */
-async function buildPlaylistPanelPayload(prisma, guildId, userId) {
+async function buildPlaylistPanelPayload(prisma, guildId, userId, selectedItemId = null) {
   const items = await listUserPlaylist(prisma, guildId, userId);
   const {
     ActionRowBuilder,
@@ -101,36 +169,77 @@ async function buildPlaylistPanelPayload(prisma, guildId, userId) {
     ButtonStyle
   } = require("discord.js");
 
-  const show = items.slice(0, 40);
-  const body = show
-    .map((it, i) => `${i + 1}. ${String(it.title).replace(/\n/g, " ").slice(0, 92)}`)
-    .join("\n");
-  const extra =
-    items.length > 40 ? `\n_… et ${items.length - 40} autre(s) (non affiche(s) ici)._` : "";
-  const content =
-    `**Ta playlist** — ${items.length} titre(s) sur ce serveur\n` +
-    `_Les morceaux sont joues sur YouTube comme le reste du bot._\n\n` +
-    (body || "_Playlist vide — clique **Ajouter un titre**._") +
-    extra;
-  const safeContent = content.slice(0, 3900);
+  const selId = resolveSelectedItemId(items, selectedItemId);
+  const selected = selId ? items.find((x) => x.id === selId) : null;
 
+  let content;
+  if (!items.length) {
+    content = [
+      "## Ta playlist (ce serveur)",
+      "",
+      "**0 titre** pour l’instant.",
+      "",
+      "Dès que **tu** lances un morceau avec le bot (recherche, lien, historique, « Tout jouer », etc.), il est **ajouté ici automatiquement** — **sans doublon** si l’URL est déjà dans la liste.",
+      "",
+      "Tu peux aussi enregistrer des titres à la main avec **Ajouter un titre**.",
+      "",
+      "_Ce message est visible **uniquement par toi**._"
+    ].join("\n");
+  } else {
+    const lines = items.map((it, i) => {
+      const mark = it.id === selId ? " **→**" : "";
+      return `${i + 1}. ${String(it.title).replace(/\n/g, " ").slice(0, 200)}${mark}`;
+    });
+    const body = lines.join("\n");
+    const tail =
+      items.length > SELECT_CAP
+        ? `\n\n_Menu ci-dessous : **${SELECT_CAP}** premiers titres. Pour les autres, utilise **Rafraîchir** après en avoir retiré._`
+        : "";
+    content =
+      `## Ta playlist — **${items.length}** titre(s) (serveur)\n` +
+      `_Piste sélectionnée (flèche **→**) : actions **Jouer** / **File** / **Retirer**._\n\n` +
+      `${body.slice(0, 3600)}${tail}\n\n` +
+      `_Visible uniquement par toi._`;
+  }
+
+  const safeContent = content.slice(0, 3900);
   const rows = [];
-  const forSelect = items.slice(0, 25);
-  if (forSelect.length) {
+
+  if (items.length) {
+    const forSelect = items.slice(0, SELECT_CAP);
     rows.push(
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
-          .setCustomId(`music_pldel:${userId}`)
-          .setPlaceholder("Retirer un titre de ta playlist")
+          .setCustomId(`music_plpick:${userId}`)
+          .setPlaceholder("Choisir une musique dans la liste")
           .addOptions(
-            forSelect.map((it) => ({
-              label: String(it.title).replace(/\n/g, " ").slice(0, 100),
+            forSelect.map((it, i) => ({
+              label: `${i + 1}. ${String(it.title).replace(/\n/g, " ").slice(0, 80)}`,
               description: String(it.url).replace(/^https?:\/\//, "").slice(0, 100),
               value: String(it.id)
             }))
           )
       )
     );
+
+    if (selected) {
+      rows.push(
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`music_ppa:${userId}:${selected.id}:j`)
+            .setLabel("Jouer maintenant")
+            .setStyle(ButtonStyle.Danger),
+          new ButtonBuilder()
+            .setCustomId(`music_ppa:${userId}:${selected.id}:q`)
+            .setLabel("Mettre en file")
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId(`music_ppa:${userId}:${selected.id}:r`)
+            .setLabel("Retirer")
+            .setStyle(ButtonStyle.Secondary)
+        )
+      );
+    }
   }
 
   rows.push(
@@ -142,11 +251,13 @@ async function buildPlaylistPanelPayload(prisma, guildId, userId) {
       new ButtonBuilder()
         .setCustomId(`music_pb:plplay:${userId}`)
         .setLabel("Tout jouer")
-        .setStyle(ButtonStyle.Success),
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(!items.length),
       new ButtonBuilder()
         .setCustomId(`music_pb:plclr:${userId}`)
         .setLabel("Vider")
-        .setStyle(ButtonStyle.Danger),
+        .setStyle(ButtonStyle.Danger)
+        .setDisabled(!items.length),
       new ButtonBuilder()
         .setCustomId(`music_pb:plref:${userId}`)
         .setLabel("Rafraichir")
@@ -154,14 +265,18 @@ async function buildPlaylistPanelPayload(prisma, guildId, userId) {
     )
   );
 
-  return { content: safeContent, components: rows, itemCount: items.length };
+  return { content: safeContent, components: rows, itemCount: items.length, selectedId: selId };
 }
 
 module.exports = {
   MAX_ITEMS,
+  SELECT_CAP,
   listUserPlaylist,
+  getOwnedPlaylistItem,
+  autoAppendPlayedTrack,
   addTracksToUserPlaylist,
   removePlaylistItem,
   clearUserPlaylist,
-  buildPlaylistPanelPayload
+  buildPlaylistPanelPayload,
+  resolveSelectedItemId
 };

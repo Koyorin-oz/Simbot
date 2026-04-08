@@ -430,6 +430,107 @@ async function handleMusicPanelInteractions(client, interaction) {
     }
   }
 
+  if (interaction.isButton() && interaction.customId.startsWith("music_ppa:")) {
+    const m = interaction.customId.match(/^music_ppa:(\d{17,20}):(\d+):(j|q|r)$/);
+    if (!m) return false;
+    const ownerId = m[1];
+    const itemId = Number(m[2]);
+    const mode = m[3];
+    if (ownerId !== interaction.user.id) {
+      await interaction
+        .reply({ content: "Ce panneau ne t'est pas destine.", flags: MessageFlags.Ephemeral })
+        .catch(() => null);
+      return true;
+    }
+    await interaction.deferUpdate();
+    const owned = await musicPlaylist.getOwnedPlaylistItem(
+      client.prisma,
+      interaction.guildId,
+      interaction.user.id,
+      itemId
+    );
+    if (!owned) {
+      const payload = await musicPlaylist.buildPlaylistPanelPayload(
+        client.prisma,
+        interaction.guildId,
+        interaction.user.id
+      );
+      await interaction.editReply({ content: payload.content, components: payload.components });
+      return true;
+    }
+    if (mode === "r") {
+      await musicPlaylist.removePlaylistItem(
+        client.prisma,
+        interaction.guildId,
+        interaction.user.id,
+        itemId
+      );
+      const payload = await musicPlaylist.buildPlaylistPanelPayload(
+        client.prisma,
+        interaction.guildId,
+        interaction.user.id,
+        null
+      );
+      await interaction.editReply({ content: payload.content, components: payload.components });
+      return true;
+    }
+    const v = musicService.getVoiceChannelForMember(interaction.member);
+    if (v.error) {
+      await interaction.followUp({ content: v.error, flags: MessageFlags.Ephemeral });
+      const payload = await musicPlaylist.buildPlaylistPanelPayload(
+        client.prisma,
+        interaction.guildId,
+        interaction.user.id,
+        itemId
+      );
+      await interaction.editReply({ content: payload.content, components: payload.components });
+      return true;
+    }
+    const j = await musicService.joinChannel(interaction.guild, v.channel, {
+      member: interaction.member,
+      client
+    });
+    if (j.error) {
+      await interaction.followUp({ content: j.error, flags: MessageFlags.Ephemeral });
+      const payload = await musicPlaylist.buildPlaylistPanelPayload(
+        client.prisma,
+        interaction.guildId,
+        interaction.user.id,
+        itemId
+      );
+      await interaction.editReply({ content: payload.content, components: payload.components });
+      return true;
+    }
+    if (mode === "j") {
+      const r = await musicService.playPlaylistItemNow(
+        interaction.guild,
+        { title: owned.title, url: owned.url },
+        interaction.user.id
+      );
+      if (r.error) {
+        await interaction.followUp({ content: r.error, flags: MessageFlags.Ephemeral });
+      }
+    } else {
+      const enq = await musicService.enqueueDirectTracks(
+        interaction.guild,
+        [{ title: owned.title, url: owned.url, source: "saved_playlist" }],
+        interaction.user.id,
+        client.prisma
+      );
+      if (enq.error) {
+        await interaction.followUp({ content: enq.error, flags: MessageFlags.Ephemeral });
+      }
+    }
+    const payload = await musicPlaylist.buildPlaylistPanelPayload(
+      client.prisma,
+      interaction.guildId,
+      interaction.user.id,
+      itemId
+    );
+    await interaction.editReply({ content: payload.content, components: payload.components });
+    return true;
+  }
+
   if (interaction.isStringSelectMenu() && interaction.customId.startsWith("music_pick:")) {
     const token = interaction.customId.slice("music_pick:".length);
     const s = getSession(client, token);
@@ -535,30 +636,21 @@ async function handleMusicPanelInteractions(client, interaction) {
     return true;
   }
 
-  if (interaction.isStringSelectMenu() && interaction.customId.startsWith("music_pldel:")) {
-    const uid = interaction.customId.slice("music_pldel:".length);
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith("music_plpick:")) {
+    const uid = interaction.customId.slice("music_plpick:".length);
     if (uid !== interaction.user.id) {
       await interaction
         .reply({ content: "Ce menu ne t'est pas destine.", flags: MessageFlags.Ephemeral })
         .catch(() => null);
       return true;
     }
-    const itemId = Number(interaction.values?.[0]);
-    if (!Number.isFinite(itemId)) {
-      await interaction.reply({ content: "Choix invalide.", flags: MessageFlags.Ephemeral }).catch(() => null);
-      return true;
-    }
+    const sel = Number(interaction.values?.[0]);
     await interaction.deferUpdate();
-    await musicPlaylist.removePlaylistItem(
-      client.prisma,
-      interaction.guildId,
-      interaction.user.id,
-      itemId
-    );
     const payload = await musicPlaylist.buildPlaylistPanelPayload(
       client.prisma,
       interaction.guildId,
-      interaction.user.id
+      interaction.user.id,
+      Number.isFinite(sel) ? sel : null
     );
     await interaction.editReply({ content: payload.content, components: payload.components });
     return true;
@@ -635,11 +727,19 @@ async function handleMusicPanelInteractions(client, interaction) {
         await interaction.editReply({ content: add.error });
         return true;
       }
-      let msg = `**${add.added}** titre(s) ajoute(s) a ta playlist.`;
+      const payload = await musicPlaylist.buildPlaylistPanelPayload(
+        client.prisma,
+        interaction.guildId,
+        interaction.user.id
+      );
+      let header = `**${add.added}** titre(s) ajoute(s).`;
       if (add.skipped > 0) {
-        msg += ` (${add.skipped} ignore(s), plafond **${musicPlaylist.MAX_ITEMS}** titres.)`;
+        header += ` (${add.skipped} ignore(s), plafond **${musicPlaylist.MAX_ITEMS}**.)`;
       }
-      await interaction.editReply({ content: msg });
+      await interaction.editReply({
+        content: `${header}\n\n${payload.content}`.slice(0, 3900),
+        components: payload.components
+      });
       return true;
     }
 

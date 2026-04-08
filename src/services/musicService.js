@@ -810,6 +810,18 @@ async function playNextLavalink(guild, failDepth = 0) {
       url: next.url,
       requesterId: next.requesterId || "0"
     };
+    try {
+      const musicPlaylist = require("./musicPlaylistService");
+      void musicPlaylist.autoAppendPlayedTrack(
+        guild.client?.prisma,
+        guild.id,
+        next.requesterId || "0",
+        next.title,
+        next.url
+      );
+    } catch {
+      /* ignore */
+    }
   } catch (e) {
     console.error("[MUSIC] Lavalink playTrack", e?.message || e);
     await playNextLavalink(guild, failDepth + 1);
@@ -840,6 +852,18 @@ async function playNext(guild, failDepth = 0) {
       url: next.url,
       requesterId: next.requesterId || "0"
     };
+    try {
+      const musicPlaylist = require("./musicPlaylistService");
+      void musicPlaylist.autoAppendPlayedTrack(
+        guild.client?.prisma,
+        guild.id,
+        next.requesterId || "0",
+        next.title,
+        next.url
+      );
+    } catch {
+      /* ignore */
+    }
   };
 
   try {
@@ -1226,6 +1250,60 @@ function formatQueue(guildId, limit = 10) {
 }
 
 /**
+ * Coupe (ou enchaine si rien ne joue) pour lancer tout de suite une piste depuis la playlist.
+ * @param {import('discord.js').Guild} guild
+ * @param {{ title: string, url: string }} item
+ * @param {string} requesterId
+ */
+async function playPlaylistItemNow(guild, item, requesterId) {
+  if (!isEnabled()) return { error: "La musique est desactivee sur ce bot." };
+  if (!loadDeps()) {
+    return { error: loadErr?.message ? `Module musique : ${loadErr.message}` : "Module musique indisponible." };
+  }
+  const st = getState(guild.id);
+  const rid = String(requesterId || "0");
+  st.queue.unshift({
+    title: item.title,
+    url: item.url,
+    requesterId: rid
+  });
+
+  if (st.lavalinkPlayer && lavalink.isLavalinkUsable(guild.client)) {
+    if (st.lavalinkPlayer.track) {
+      await st.lavalinkPlayer.stopTrack().catch(() => null);
+      return { ok: true };
+    }
+    await playNext(guild);
+    return { ok: true };
+  }
+
+  if (!loadOk || !voiceMod) return { error: "Musique inactive." };
+
+  if (!st.player) {
+    await playNext(guild);
+    return { ok: true };
+  }
+
+  const { AudioPlayerStatus } = voiceMod;
+  const s = st.player.state.status;
+  if (
+    s === AudioPlayerStatus.Playing ||
+    s === AudioPlayerStatus.Buffering ||
+    s === AudioPlayerStatus.Paused
+  ) {
+    try {
+      st.player.stop(true);
+    } catch (e) {
+      return { error: e.message || String(e) };
+    }
+    return { ok: true };
+  }
+
+  await playNext(guild);
+  return { ok: true };
+}
+
+/**
  * @param {import('discord.js').Guild} guild
  * @param {Array<{ title: string, url: string, source?: string }>} tracks
  * @param {string} requesterId
@@ -1338,5 +1416,6 @@ module.exports = {
   getGuildVolume,
   VOLUME_MIN,
   VOLUME_MAX,
-  VOLUME_NUDGE
+  VOLUME_NUDGE,
+  playPlaylistItemNow
 };
