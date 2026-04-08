@@ -3,8 +3,10 @@
 const config = require("../config");
 
 let voiceMod = null;
+/** Lecture / recherche YouTube via play-dl (flux audio + decipher separes de ytdl-core). */
+let play = null;
+/** Secours si play-dl echoue (403, etc.). */
 let ytdl = null;
-let YouTube = null;
 let loadOk = false;
 let loadErr = null;
 
@@ -48,15 +50,32 @@ function ytdlRequestOpts(extra = {}) {
   return o;
 }
 
+function applyPlayDlYoutubeCookie() {
+  if (!play) return;
+  const raw = String(config.music?.youtubeCookie || "").trim();
+  if (!raw) return;
+  try {
+    play.setToken({ youtube: { cookie: raw } });
+  } catch (e) {
+    console.warn("[MUSIC] play-dl setToken", e?.message || e);
+  }
+}
+
+function isYoutubeWatchUrl(u) {
+  if (!play || !u) return false;
+  return play.yt_validate(String(u).trim()) === "video";
+}
+
 function loadDeps() {
   if (voiceMod === false) return false;
   if (loadOk) return true;
   try {
     const ffmpegPath = require("ffmpeg-static");
     if (ffmpegPath) process.env.FFMPEG_PATH = ffmpegPath;
+    play = require("play-dl");
     ytdl = require("@distube/ytdl-core");
-    YouTube = require("youtube-sr").default;
     voiceMod = require("@discordjs/voice");
+    applyPlayDlYoutubeCookie();
     loadOk = true;
     loadErr = null;
     return true;
@@ -202,11 +221,24 @@ function spotifyMetaFromTrack(tr) {
 async function youtubeSearchOne(query) {
   const q = String(query || "").trim();
   if (!q) return { error: "Recherche vide." };
-  const v = await YouTube.searchOne(q);
-  if (!v?.url || !ytdl.validateURL(v.url)) {
+  applyPlayDlYoutubeCookie();
+  let videos;
+  try {
+    videos = await play.search(q, { limit: 12, source: { youtube: "video" } });
+  } catch (e) {
+    return { error: `YouTube : ${String(e.message || e).slice(0, 180)}` };
+  }
+  if (!videos?.length) {
     return { error: `Aucun resultat YouTube pour : ${q.slice(0, 80)}` };
   }
-  return { title: v.title || q, url: v.url };
+  const pick =
+    videos.find((v) => v?.url && isYoutubeWatchUrl(v.url) && !v.live) ||
+    videos.find((v) => v?.url && isYoutubeWatchUrl(v.url)) ||
+    null;
+  if (!pick?.url) {
+    return { error: `Aucun resultat YouTube pour : ${q.slice(0, 80)}` };
+  }
+  return { title: pick.title || q, url: pick.url };
 }
 
 /**
@@ -216,14 +248,15 @@ async function resolveQueryToYoutubeTracks(query) {
   const raw = String(query || "").trim();
   if (!raw) return { error: "Texte vide." };
 
-  if (ytdl.validateURL(raw)) {
+  if (isYoutubeWatchUrl(raw)) {
+    applyPlayDlYoutubeCookie();
     let info;
     try {
-      info = await ytdl.getBasicInfo(raw, ytdlRequestOpts());
+      info = await play.video_basic_info(raw);
     } catch (e) {
       return { error: `Lien YouTube invalide ou indisponible : ${e.message || e}` };
     }
-    const title = info?.videoDetails?.title || "YouTube";
+    const title = info?.video_details?.title || "YouTube";
     return { tracks: [{ title, url: raw }] };
   }
 
@@ -291,7 +324,7 @@ function isDirectPlayQuery(raw) {
   const q = String(raw || "").trim();
   if (!q) return false;
   if (/open\.spotify\.com\//i.test(q)) return true;
-  if (loadDeps() && ytdl?.validateURL?.(q)) return true;
+  if (loadDeps() && isYoutubeWatchUrl(q)) return true;
   return false;
 }
 
@@ -304,9 +337,10 @@ async function searchMixedCandidates(query) {
   if (!q) return [];
   const out = [];
   try {
-    const videos = await YouTube.search(q, { limit: 5, type: "video" });
+    applyPlayDlYoutubeCookie();
+    const videos = await play.search(q, { limit: 5, source: { youtube: "video" } });
     for (const v of videos) {
-      if (v?.url && ytdl.validateURL(v.url)) {
+      if (v?.url && isYoutubeWatchUrl(v.url)) {
         out.push({ kind: "youtube", title: v.title || "Video", url: v.url });
       }
     }
@@ -345,7 +379,7 @@ async function searchMixedCandidates(query) {
  */
 async function resolveCandidateChoice(choice) {
   if (!loadDeps()) return { error: "Module musique indisponible." };
-  if (choice.url && ytdl.validateURL(choice.url)) {
+  if (choice.url && isYoutubeWatchUrl(choice.url)) {
     return {
       title: choice.title,
       url: choice.url,
@@ -403,26 +437,51 @@ async function getUserPlayHistoryUnique(prisma, guildId, userId, limit = 25) {
 }
 
 async function playNext(guild, failDepth = 0) {
-  if (!loadOk || !voiceMod) return;
+  if (!loadOk || !voiceMod || !play || !ytdl) return;
   if (failDepth > 12) return;
   const st = getState(guild.id);
   if (!st.player || !st.connection) return;
   const next = st.queue.shift();
   if (!next) return;
-  const dlBase = ytdlRequestOpts();
-  const formatStrategies = [
-    { label: "audioandvideo+lowest", opts: { filter: "audioandvideo", quality: "lowest" } },
-    { label: "audioandvideo+highest", opts: { filter: "audioandvideo", quality: "highest" } },
-    { label: "audio+highestaudio", opts: { filter: "audio", quality: "highestaudio" } },
-    { label: "audioonly+highestaudio", opts: { filter: "audioonly", quality: "highestaudio" } },
-    { label: "any+highest", opts: { quality: "highest" } }
-  ];
+
+  applyPlayDlYoutubeCookie();
+
   try {
+    try {
+      const src = await play.stream(next.url, { discordPlayerCompatibility: true });
+      const body = src.stream;
+      const t = String(src.type || "arbitrary");
+      const inputType =
+        t === "webm/opus"
+          ? voiceMod.StreamType.WebmOpus
+          : t === "ogg/opus"
+            ? voiceMod.StreamType.OggOpus
+            : voiceMod.StreamType.Arbitrary;
+      const resource = voiceMod.createAudioResource(body, {
+        inputType,
+        inlineVolume: true
+      });
+      if (resource.volume) resource.volume.setVolume(Math.min(1, Math.max(0, st.volume / 100)));
+      st.player.play(resource);
+      return;
+    } catch (playDlErr) {
+      console.warn("[MUSIC] playNext play-dl", playDlErr?.message || playDlErr);
+    }
+
+    const dlBase = ytdlRequestOpts();
+    const formatStrategies = [
+      { label: "audioandvideo+lowest", opts: { filter: "audioandvideo", quality: "lowest" } },
+      { label: "audioandvideo+highest", opts: { filter: "audioandvideo", quality: "highest" } },
+      { label: "audio+highestaudio", opts: { filter: "audio", quality: "highestaudio" } },
+      { label: "audioonly+highestaudio", opts: { filter: "audioonly", quality: "highestaudio" } },
+      { label: "any+highest", opts: { quality: "highest" } }
+    ];
+
     let info;
     try {
       info = await ytdl.getInfo(next.url, dlBase);
     } catch (e) {
-      console.error("[MUSIC] playNext getInfo", e?.message || e);
+      console.error("[MUSIC] playNext getInfo (fallback)", e?.message || e);
       await playNext(guild, failDepth + 1);
       return;
     }
@@ -459,7 +518,7 @@ async function playNext(guild, failDepth = 0) {
         }
 
         if (i > 0) {
-          console.warn("[MUSIC] playNext format strategy", label);
+          console.warn("[MUSIC] playNext format strategy (ytdl)", label);
         }
 
         const resource = voiceMod.createAudioResource(stream, {
@@ -471,7 +530,7 @@ async function playNext(guild, failDepth = 0) {
         return;
       } catch (e) {
         lastAttemptErr = e;
-        console.warn("[MUSIC] playNext strategy failed", label, e?.message || e);
+        console.warn("[MUSIC] playNext ytdl strategy failed", label, e?.message || e);
       }
     }
 
