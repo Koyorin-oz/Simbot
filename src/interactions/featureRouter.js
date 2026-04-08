@@ -44,6 +44,7 @@ const {
   buildSuggestionMessagePayload,
   canViewAndVoteSuggestions
 } = require("../services/suggestionService");
+const musicService = require("../services/musicService");
 
 function parsePrvOwner(customId) {
   const m = String(customId).match(/^(.+):(\d{17,20})$/);
@@ -608,6 +609,115 @@ async function handlePrivateRoomInteractions(client, interaction) {
       return true;
     }
 
+    if (prefix.startsWith("prv_music_")) {
+      if (!musicService.isEnabled()) {
+        await interaction
+          .reply({ content: "La musique est desactivee sur ce bot.", flags: MessageFlags.Ephemeral })
+          .catch(() => null);
+        return true;
+      }
+
+      if (prefix === "prv_music_join") {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        const v = musicService.getVoiceForPrivatePanel(
+          interaction.member,
+          client,
+          interaction.guildId,
+          ownerId
+        );
+        if (v.error) {
+          await interaction.editReply({ content: v.error });
+          return true;
+        }
+        const j = await musicService.joinChannel(interaction.guild, v.channel);
+        if (j.error) await interaction.editReply({ content: j.error });
+        else await interaction.editReply({ content: `Connecte dans **${v.channel.name}**.` });
+        return true;
+      }
+
+      if (prefix === "prv_music_play") {
+        const modal = new ModalBuilder()
+          .setCustomId(`prv_music_play_modal:${ownerId}`)
+          .setTitle("Lecture musique");
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("pr_music_query")
+              .setLabel("Lien YouTube / Spotify ou recherche")
+              .setStyle(TextInputStyle.Paragraph)
+              .setMinLength(2)
+              .setMaxLength(400)
+              .setRequired(true)
+          )
+        );
+        await interaction.showModal(modal);
+        return true;
+      }
+
+      if (prefix === "prv_music_saved") {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        const prefs = await loadPrefs(client.prisma, interaction.guildId, ownerId);
+        const url = String(prefs.musicSpotifyUrl || "").trim();
+        if (!url) {
+          await interaction.editReply({
+            content: "Aucun lien enregistre. Utilise `/music definir-lien` puis **Rafraichir** le panneau."
+          });
+          return true;
+        }
+        const v = musicService.getVoiceForPrivatePanel(
+          interaction.member,
+          client,
+          interaction.guildId,
+          ownerId
+        );
+        if (v.error) {
+          await interaction.editReply({ content: v.error });
+          return true;
+        }
+        const j = await musicService.joinChannel(interaction.guild, v.channel);
+        if (j.error) {
+          await interaction.editReply({ content: j.error });
+          return true;
+        }
+        const enq = await musicService.enqueueQuery(interaction.guild, url, interaction.user.id);
+        if (enq.error) await interaction.editReply({ content: enq.error });
+        else {
+          const first = enq.firstTitle || "OK";
+          await interaction.editReply({
+            content:
+              enq.added > 1
+                ? `**${enq.added}** morceaux ajoutes. Premier : **${first}**.`
+                : `Ajoute : **${first}**.`
+          });
+        }
+        return true;
+      }
+
+      if (prefix === "prv_music_queue") {
+        const text = musicService.formatQueue(interaction.guildId, 15);
+        await interaction.reply({ content: text.slice(0, 2000), flags: MessageFlags.Ephemeral });
+        return true;
+      }
+
+      if (prefix === "prv_music_skip") {
+        const r = musicService.skipGuild(interaction.guildId);
+        await interaction.reply({
+          content: r.error || "Skip.",
+          flags: MessageFlags.Ephemeral
+        });
+        return true;
+      }
+
+      if (prefix === "prv_music_leave") {
+        musicService.leaveGuild(interaction.guildId);
+        await interaction.reply({
+          content: "Musique arretee, bot deconnecte du vocal.",
+          flags: MessageFlags.Ephemeral
+        });
+        return true;
+      }
+    }
+
     return false;
   }
 
@@ -732,6 +842,45 @@ async function handlePrivateRoomInteractions(client, interaction) {
       await interaction.editReply({
         content: `Liste blanche enregistree (${ids.length} id).${extra}`
       });
+      return true;
+    }
+
+    if (prefix === "prv_music_play_modal") {
+      if (!musicService.isEnabled()) {
+        await interaction.reply({
+          content: "La musique est desactivee sur ce bot.",
+          flags: MessageFlags.Ephemeral
+        });
+        return true;
+      }
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const q = interaction.fields.getTextInputValue("pr_music_query");
+      const v = musicService.getVoiceForPrivatePanel(
+        interaction.member,
+        client,
+        interaction.guildId,
+        ownerId
+      );
+      if (v.error) {
+        await interaction.editReply({ content: v.error });
+        return true;
+      }
+      const j = await musicService.joinChannel(interaction.guild, v.channel);
+      if (j.error) {
+        await interaction.editReply({ content: j.error });
+        return true;
+      }
+      const enq = await musicService.enqueueQuery(interaction.guild, q, interaction.user.id);
+      if (enq.error) await interaction.editReply({ content: enq.error });
+      else {
+        const first = enq.firstTitle || "OK";
+        await interaction.editReply({
+          content:
+            enq.added > 1
+              ? `**${enq.added}** morceaux ajoutes. Premier : **${first}**.`
+              : `Ajoute : **${first}**.`
+        });
+      }
       return true;
     }
   }

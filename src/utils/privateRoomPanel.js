@@ -13,7 +13,13 @@ const { V2_MSG, ACCENT_COLOR } = require("./componentsV2Panels");
  * @param {boolean} hasChannel
  * @param {string} prefsSummary
  * @param {string} ownerId - ID Discord : suffixed aux customId pour que seul le proprietaire puisse cliquer
- * @param {{ pingUser?: boolean }} [opts] - si pingUser, mention au debut (obligatoire avec Components V2 : pas de `content` separe)
+ * @param {{
+ *   pingUser?: boolean,
+ *   panelTextChannelId?: string | null,
+ *   lobbyChannelId?: string | null,
+ *   musicEnabled?: boolean,
+ *   musicSpotifyUrl?: string
+ * }} [opts] - si pingUser, mention au debut (obligatoire avec Components V2 : pas de `content` separe)
  */
 function buildPrivateRoomPanel(hasChannel, prefsSummary, ownerId, opts = {}) {
   const id = String(ownerId);
@@ -65,6 +71,53 @@ function buildPrivateRoomPanel(hasChannel, prefsSummary, ownerId, opts = {}) {
     .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
     .addActionRowComponents(row1)
     .addActionRowComponents(row2);
+
+  if (opts.musicEnabled) {
+    const savedOk = Boolean(String(opts.musicSpotifyUrl || "").trim());
+    const musicHint =
+      "**Musique** : le bot rejoint ton vocal et lit via YouTube (lien ou recherche). " +
+      "Liens **Spotify publics** (morceau / album / playlist) si l’API est configuree sur le bot. " +
+      "Enregistre un lien avec `/music definir-lien` pour le bouton **Ma playlist**.";
+    container
+      .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+      .addTextDisplayComponents(new TextDisplayBuilder().setContent(musicHint));
+
+    const rowMusic1 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`prv_music_join:${id}`)
+        .setLabel("Musique : rejoindre")
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(!hasChannel),
+      new ButtonBuilder()
+        .setCustomId(`prv_music_play:${id}`)
+        .setLabel("Musique : jouer")
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(!hasChannel),
+      new ButtonBuilder()
+        .setCustomId(`prv_music_saved:${id}`)
+        .setLabel("Ma playlist")
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(!hasChannel || !savedOk),
+      new ButtonBuilder()
+        .setCustomId(`prv_music_queue:${id}`)
+        .setLabel("File")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(!hasChannel),
+      new ButtonBuilder()
+        .setCustomId(`prv_music_skip:${id}`)
+        .setLabel("Skip")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(!hasChannel)
+    );
+    const rowMusic2 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`prv_music_leave:${id}`)
+        .setLabel("Musique : quitter le vocal")
+        .setStyle(ButtonStyle.Danger)
+        .setDisabled(!hasChannel)
+    );
+    container.addActionRowComponents(rowMusic1).addActionRowComponents(rowMusic2);
+  }
 
   return { components: [container], ...V2_MSG };
 }

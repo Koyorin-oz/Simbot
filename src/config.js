@@ -177,6 +177,17 @@ module.exports = {
     roleVerifiedId: "973960786290544690"
   },
 
+  /**
+   * Musique dans le vocal : @discordjs/voice + YouTube (recherche / lien) ; liens Spotify publics si creds API.
+   * Desactiver : MUSIC_ENABLED=false
+   */
+  music: {
+    enabled: String(process.env.MUSIC_ENABLED || "true").toLowerCase() !== "false",
+    maxPlaylistTracks: Math.min(50, Math.max(5, Number(process.env.MUSIC_MAX_PLAYLIST_TRACKS) || 25)),
+    spotifyClientId: String(process.env.SPOTIFY_CLIENT_ID || "").trim(),
+    spotifyClientSecret: String(process.env.SPOTIFY_CLIENT_SECRET || "").trim()
+  },
+
   /** Salons vocaux temporaires : rejoindre le lobby = creation auto du vocal prive + chat associe. */
   privateRoom: {
     enabled: true,

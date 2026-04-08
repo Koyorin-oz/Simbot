@@ -77,6 +77,8 @@ model PrivateRoomPrefs {
   defaultMode  String   @default("open")
   blacklistIds String   @default("[]")
   whitelistIds String   @default("[]")
+  /** Lien Spotify (playlist / album / morceau) enregistre via /music pour lecture rapide depuis le panneau vocal. */
+  musicSpotifyUrl String @default("")
   updatedAt    DateTime @updatedAt
 
   @@unique([guildId, userId])

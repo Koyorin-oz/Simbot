@@ -44,6 +44,12 @@ if (!discordToken) {
 client.login(discordToken);
 
 process.on("SIGINT", async () => {
+  try {
+    const { destroyAllConnections } = require("./services/musicService");
+    destroyAllConnections();
+  } catch {
+    /* ignore */
+  }
   await client.prisma.$disconnect();
   process.exit(0);
 });
