@@ -102,24 +102,41 @@ async function getVoteCounts(prisma, suggestionId) {
 }
 
 /**
- * Un membre = au plus un vote par suggestion. Clic sur un autre bouton = changement d’avis.
- * Re-clic sur le même bouton = rien.
+ * Si d’anciennes lignes dupliquaient le meme userId (course / bug), on garde le vote le plus recent (id max).
+ */
+async function pruneDuplicateSuggestionVotes(prisma, suggestionId) {
+  const rows = await prisma.suggestionVote.findMany({
+    where: { suggestionId },
+    orderBy: { id: "desc" }
+  });
+  const seenUser = new Set();
+  const idsToDelete = [];
+  for (const r of rows) {
+    if (seenUser.has(r.userId)) idsToDelete.push(r.id);
+    else seenUser.add(r.userId);
+  }
+  if (idsToDelete.length) {
+    await prisma.suggestionVote.deleteMany({ where: { id: { in: idsToDelete } } });
+  }
+}
+
+/**
+ * Un membre = une seule ligne par suggestion (Pour / Neutre / Contre exclusifs).
+ * Clic sur un autre bouton remplace le vote. Re-clic sur le meme bouton = rien.
+ * Upsert atomique pour eviter course (double create) et doublons en base.
  */
 async function applyVote(prisma, suggestionId, userId, direction) {
   const val = direction === "up" ? 1 : direction === "down" ? -1 : 0;
+  await pruneDuplicateSuggestionVotes(prisma, suggestionId);
   const existing = await prisma.suggestionVote.findUnique({
     where: { suggestionId_userId: { suggestionId, userId } }
   });
-  if (!existing) {
-    await prisma.suggestionVote.create({
-      data: { suggestionId, userId, value: val }
-    });
-  } else if (existing.value !== val) {
-    await prisma.suggestionVote.update({
-      where: { id: existing.id },
-      data: { value: val }
-    });
-  }
+  if (existing && existing.value === val) return;
+  await prisma.suggestionVote.upsert({
+    where: { suggestionId_userId: { suggestionId, userId } },
+    create: { suggestionId, userId, value: val },
+    update: { value: val }
+  });
 }
 
 /**
@@ -142,10 +159,12 @@ function buildSuggestionMessagePayload(suggestion, counts, opts = {}) {
     "",
     bodySafe,
     "",
-    `**Auteur** : <@${authorId}>`
+    `**Auteur** : <@${authorId}>`,
+    "",
+    `_**Votes** — Pour **${up}** · Neutre **${neutral}** · Contre **${down}**_`,
+    "_Un seul choix par membre : un nouveau bouton remplace ton vote._",
+    "_Vote avec les boutons ci-dessous._"
   ];
-  if (neutral > 0) descParts.push("", `_Neutre · ${neutral}_`);
-  descParts.push("", "_Vote avec les boutons ci-dessous._");
   const desc = descParts.join("\n").slice(0, 4090);
 
   const embed = new EmbedBuilder()
@@ -288,6 +307,7 @@ module.exports = {
   canViewAndVoteSuggestions,
   isSuggestionsStaff,
   getVoteCounts,
+  pruneDuplicateSuggestionVotes,
   applyVote,
   buildSuggestionMessagePayload,
   buildSuggestionPostPayload,
