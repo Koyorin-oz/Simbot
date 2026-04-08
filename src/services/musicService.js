@@ -13,6 +13,41 @@ const YTDL_INFO_OPTIONS = {
   playerClients: ["WEB", "WEB_EMBEDDED", "IOS", "ANDROID", "TV"]
 };
 
+let cachedYtdlAgent = null;
+let cachedYtdlAgentCookie = "";
+
+/** Agent avec cookies (optionnel) pour YouTube : limite les 403 quand ytdl ne parvient pas a dechiffrer les URLs. */
+function getYtdlAgent() {
+  if (!ytdl) return undefined;
+  const raw = String(config.music?.youtubeCookie || "").trim();
+  if (!raw) {
+    cachedYtdlAgent = null;
+    cachedYtdlAgentCookie = "";
+    return undefined;
+  }
+  if (cachedYtdlAgent && cachedYtdlAgentCookie === raw) return cachedYtdlAgent;
+  const { CookieJar } = require("tough-cookie");
+  const { addCookiesFromString } = require("@distube/ytdl-core/lib/agent");
+  const jar = new CookieJar();
+  addCookiesFromString(jar, raw);
+  cachedYtdlAgent = ytdl.createAgent([], { cookies: { jar } });
+  cachedYtdlAgentCookie = raw;
+  return cachedYtdlAgent;
+}
+
+/** Options communes pour getInfo / getBasicInfo / downloadFromInfo */
+function ytdlRequestOpts(extra = {}) {
+  const o = {
+    ...YTDL_INFO_OPTIONS,
+    highWaterMark: 1 << 25,
+    dlChunkSize: 0,
+    ...extra
+  };
+  const ag = getYtdlAgent();
+  if (ag) o.agent = ag;
+  return o;
+}
+
 function loadDeps() {
   if (voiceMod === false) return false;
   if (loadOk) return true;
@@ -184,7 +219,7 @@ async function resolveQueryToYoutubeTracks(query) {
   if (ytdl.validateURL(raw)) {
     let info;
     try {
-      info = await ytdl.getBasicInfo(raw, YTDL_INFO_OPTIONS);
+      info = await ytdl.getBasicInfo(raw, ytdlRequestOpts());
     } catch (e) {
       return { error: `Lien YouTube invalide ou indisponible : ${e.message || e}` };
     }
@@ -374,11 +409,7 @@ async function playNext(guild, failDepth = 0) {
   if (!st.player || !st.connection) return;
   const next = st.queue.shift();
   if (!next) return;
-  const dlBase = {
-    ...YTDL_INFO_OPTIONS,
-    highWaterMark: 1 << 25,
-    dlChunkSize: 0
-  };
+  const dlBase = ytdlRequestOpts();
   const formatStrategies = [
     { label: "audioandvideo+lowest", opts: { filter: "audioandvideo", quality: "lowest" } },
     { label: "audioandvideo+highest", opts: { filter: "audioandvideo", quality: "highest" } },
