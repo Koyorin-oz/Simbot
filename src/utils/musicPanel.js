@@ -28,6 +28,7 @@ function buildMusicPanelPayload(userId) {
     "**Rechercher** : ouvre un formulaire — le bot propose les **meilleurs resultats YouTube + Spotify** (si configure).",
     "**Coller un lien** : URL YouTube ou Spotify (playlist / album / morceau).",
     "**Historique** : tes morceaux deja joues sur ce serveur — choisis-en un pour le remettre en file.",
+    "**Playlist** : ta liste perso sur ce serveur — ajouter / retirer des titres, tout mettre en file.",
     "**File** : file d’attente actuelle du serveur (pas ton historique).",
     "**Pause / Reprendre / Depuis le debut** : controle la lecture ; **Son - / Son +** : volume par pas de 10 %.",
     "Tu peux aussi utiliser `/music pause`, `/music reprendre`, `/music recommencer`, `/music volume`.",
@@ -48,6 +49,10 @@ function buildMusicPanelPayload(userId) {
       .setCustomId(`music_pb:hist:${id}`)
       .setLabel("Historique")
       .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`music_pb:playlist:${id}`)
+      .setLabel("Playlist")
+      .setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId(`music_pb:queue:${id}`).setLabel("File").setStyle(ButtonStyle.Secondary)
   );
 

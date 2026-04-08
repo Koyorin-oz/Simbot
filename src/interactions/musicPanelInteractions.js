@@ -11,6 +11,7 @@ const {
 } = require("discord.js");
 const { buildMusicPanelPayload } = require("../utils/musicPanel");
 const musicService = require("../services/musicService");
+const musicPlaylist = require("../services/musicPlaylistService");
 const { loadPrefs, savePrefs } = require("../services/privateRoomService");
 
 function ensureSessions(client) {
@@ -230,6 +231,112 @@ async function handleMusicPanelInteractions(client, interaction) {
       return true;
     }
 
+    if (p.action === "playlist") {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      try {
+        const payload = await musicPlaylist.buildPlaylistPanelPayload(
+          client.prisma,
+          interaction.guildId,
+          interaction.user.id
+        );
+        await interaction.editReply({ content: payload.content, components: payload.components });
+      } catch (e) {
+        await interaction.editReply({
+          content: `Erreur playlist : ${String(e?.message || e).slice(0, 180)}`
+        });
+      }
+      return true;
+    }
+
+    if (p.action === "pladd") {
+      const modal = new ModalBuilder()
+        .setCustomId(`music_md:pladd:${p.userId}`)
+        .setTitle("Ajouter a ta playlist");
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("music_pl_q")
+            .setLabel("Lien YouTube / Spotify ou recherche")
+            .setStyle(TextInputStyle.Paragraph)
+            .setMinLength(3)
+            .setMaxLength(400)
+            .setRequired(true)
+        )
+      );
+      await interaction.showModal(modal);
+      return true;
+    }
+
+    if (p.action === "plplay") {
+      await interaction.deferUpdate();
+      const items = await musicPlaylist.listUserPlaylist(
+        client.prisma,
+        interaction.guildId,
+        interaction.user.id
+      );
+      if (!items.length) {
+        await interaction.followUp({
+          content: "Ta playlist est vide.",
+          flags: MessageFlags.Ephemeral
+        });
+        return true;
+      }
+      const v = musicService.getVoiceChannelForMember(interaction.member);
+      if (v.error) {
+        await interaction.followUp({ content: v.error, flags: MessageFlags.Ephemeral });
+        return true;
+      }
+      const j = await musicService.joinChannel(interaction.guild, v.channel, {
+        member: interaction.member,
+        client
+      });
+      if (j.error) {
+        await interaction.followUp({ content: j.error, flags: MessageFlags.Ephemeral });
+        return true;
+      }
+      const tracks = items.map((it) => ({
+        title: it.title,
+        url: it.url,
+        source: "saved_playlist"
+      }));
+      const enq = await musicService.enqueueDirectTracks(
+        interaction.guild,
+        tracks,
+        interaction.user.id,
+        client.prisma
+      );
+      await interaction.followUp({
+        content: enq.error
+          ? enq.error
+          : `**${enq.added}** morceau(x) de ta playlist ajoute(s) a la file — premier : **${enq.firstTitle}**.`,
+        flags: MessageFlags.Ephemeral
+      });
+      return true;
+    }
+
+    if (p.action === "plclr") {
+      await interaction.deferUpdate();
+      await musicPlaylist.clearUserPlaylist(client.prisma, interaction.guildId, interaction.user.id);
+      const payload = await musicPlaylist.buildPlaylistPanelPayload(
+        client.prisma,
+        interaction.guildId,
+        interaction.user.id
+      );
+      await interaction.editReply({ content: payload.content, components: payload.components });
+      return true;
+    }
+
+    if (p.action === "plref") {
+      await interaction.deferUpdate();
+      const payload = await musicPlaylist.buildPlaylistPanelPayload(
+        client.prisma,
+        interaction.guildId,
+        interaction.user.id
+      );
+      await interaction.editReply({ content: payload.content, components: payload.components });
+      return true;
+    }
+
     if (p.action === "search") {
       const modal = new ModalBuilder()
         .setCustomId(`music_md:search:${p.userId}`)
@@ -428,6 +535,35 @@ async function handleMusicPanelInteractions(client, interaction) {
     return true;
   }
 
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith("music_pldel:")) {
+    const uid = interaction.customId.slice("music_pldel:".length);
+    if (uid !== interaction.user.id) {
+      await interaction
+        .reply({ content: "Ce menu ne t'est pas destine.", flags: MessageFlags.Ephemeral })
+        .catch(() => null);
+      return true;
+    }
+    const itemId = Number(interaction.values?.[0]);
+    if (!Number.isFinite(itemId)) {
+      await interaction.reply({ content: "Choix invalide.", flags: MessageFlags.Ephemeral }).catch(() => null);
+      return true;
+    }
+    await interaction.deferUpdate();
+    await musicPlaylist.removePlaylistItem(
+      client.prisma,
+      interaction.guildId,
+      interaction.user.id,
+      itemId
+    );
+    const payload = await musicPlaylist.buildPlaylistPanelPayload(
+      client.prisma,
+      interaction.guildId,
+      interaction.user.id
+    );
+    await interaction.editReply({ content: payload.content, components: payload.components });
+    return true;
+  }
+
   if (interaction.isModalSubmit() && interaction.customId.startsWith("music_md:")) {
     const parsed = parseMusicModalId(interaction.customId);
     if (!parsed || parsed.userId !== interaction.user.id) {
@@ -473,6 +609,37 @@ async function handleMusicPanelInteractions(client, interaction) {
               : `**${first}** ajoute (${enq.queueLen} en file).`
         });
       }
+      return true;
+    }
+
+    if (parsed.kind === "pladd") {
+      const raw = interaction.fields.getTextInputValue("music_pl_q");
+      const q = String(raw || "").trim();
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      if (!musicService.loadDeps()) {
+        await interaction.editReply({ content: "Module musique indisponible." });
+        return true;
+      }
+      const resolved = await musicService.resolveQueryToYoutubeTracks(q, interaction.guild);
+      if (resolved.error) {
+        await interaction.editReply({ content: resolved.error });
+        return true;
+      }
+      const add = await musicPlaylist.addTracksToUserPlaylist(
+        client.prisma,
+        interaction.guildId,
+        interaction.user.id,
+        resolved.tracks
+      );
+      if (add.error) {
+        await interaction.editReply({ content: add.error });
+        return true;
+      }
+      let msg = `**${add.added}** titre(s) ajoute(s) a ta playlist.`;
+      if (add.skipped > 0) {
+        msg += ` (${add.skipped} ignore(s), plafond **${musicPlaylist.MAX_ITEMS}** titres.)`;
+      }
+      await interaction.editReply({ content: msg });
       return true;
     }
 

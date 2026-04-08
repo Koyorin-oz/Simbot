@@ -97,6 +97,19 @@ model MusicPlayHistory {
   @@index([guildId, userId, createdAt])
 }
 
+/** Playlist perso enregistree par membre / serveur (panneau musique). */
+model MusicPlaylistItem {
+  id        Int      @id @default(autoincrement())
+  guildId   String
+  userId    String
+  title     String
+  url       String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([guildId, userId, sortOrder])
+}
+
 model Ticket {
   id        Int       @id @default(autoincrement())
   guildId   String
