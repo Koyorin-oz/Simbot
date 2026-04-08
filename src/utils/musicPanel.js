@@ -29,6 +29,8 @@ function buildMusicPanelPayload(userId) {
     "**Coller un lien** : URL YouTube ou Spotify (playlist / album / morceau).",
     "**Historique** : tes morceaux deja joues sur ce serveur — choisis-en un pour le remettre en file.",
     "**File** : file d’attente actuelle du serveur (pas ton historique).",
+    "**Pause / Reprendre / Depuis le debut** : controle la lecture ; **Son - / Son +** : volume par pas de 10 %.",
+    "Tu peux aussi utiliser `/music pause`, `/music reprendre`, `/music recommencer`, `/music volume`.",
     "",
     "Tu dois etre dans un **salon vocal** pour lancer la lecture. Les boutons ne reagissent que pour **toi**."
   ].join("\n");
@@ -63,6 +65,17 @@ function buildMusicPanelPayload(userId) {
   );
 
   const row3 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`music_pb:pause:${id}`).setLabel("Pause").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`music_pb:resume:${id}`).setLabel("Reprendre").setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`music_pb:restart:${id}`)
+      .setLabel("Depuis le debut")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`music_pb:voldown:${id}`).setLabel("Son -").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`music_pb:volup:${id}`).setLabel("Son +").setStyle(ButtonStyle.Secondary)
+  );
+
+  const row4 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`music_pb:saveurl:${id}`)
       .setLabel("Enregistrer lien Spotify (voc prive)")
@@ -79,7 +92,8 @@ function buildMusicPanelPayload(userId) {
     .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
     .addActionRowComponents(row1)
     .addActionRowComponents(row2)
-    .addActionRowComponents(row3);
+    .addActionRowComponents(row3)
+    .addActionRowComponents(row4);
 
   return { components: [container], ...MUSIC_V2 };
 }

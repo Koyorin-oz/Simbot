@@ -724,6 +724,45 @@ async function handlePrivateRoomInteractions(client, interaction) {
         });
         return true;
       }
+
+      if (prefix === "prv_music_pause") {
+        const r = musicService.pauseGuild(interaction.guildId);
+        await interaction.reply({ content: r.error || "Pause.", flags: MessageFlags.Ephemeral });
+        return true;
+      }
+
+      if (prefix === "prv_music_resume") {
+        const r = musicService.resumeGuild(interaction.guildId);
+        await interaction.reply({ content: r.error || "Lecture reprise.", flags: MessageFlags.Ephemeral });
+        return true;
+      }
+
+      if (prefix === "prv_music_restart") {
+        const r = await musicService.restartCurrentTrackGuild(interaction.guildId);
+        await interaction.reply({
+          content: r.error || "Morceau relance depuis le debut.",
+          flags: MessageFlags.Ephemeral
+        });
+        return true;
+      }
+
+      if (prefix === "prv_music_voldown") {
+        const r = musicService.nudgeGuildVolume(interaction.guildId, -musicService.VOLUME_NUDGE);
+        await interaction.reply({
+          content: r.error || `Volume : **${r.volume}%**.`,
+          flags: MessageFlags.Ephemeral
+        });
+        return true;
+      }
+
+      if (prefix === "prv_music_volup") {
+        const r = musicService.nudgeGuildVolume(interaction.guildId, musicService.VOLUME_NUDGE);
+        await interaction.reply({
+          content: r.error || `Volume : **${r.volume}%**.`,
+          flags: MessageFlags.Ephemeral
+        });
+        return true;
+      }
     }
 
     return false;

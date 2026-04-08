@@ -116,7 +116,34 @@ function buildPrivateRoomPanel(hasChannel, prefsSummary, ownerId, opts = {}) {
         .setStyle(ButtonStyle.Danger)
         .setDisabled(!hasChannel)
     );
-    container.addActionRowComponents(rowMusic1).addActionRowComponents(rowMusic2);
+    const rowMusic3 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`prv_music_pause:${id}`)
+        .setLabel("Pause")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(!hasChannel),
+      new ButtonBuilder()
+        .setCustomId(`prv_music_resume:${id}`)
+        .setLabel("Reprendre")
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(!hasChannel),
+      new ButtonBuilder()
+        .setCustomId(`prv_music_restart:${id}`)
+        .setLabel("Depuis le debut")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(!hasChannel),
+      new ButtonBuilder()
+        .setCustomId(`prv_music_voldown:${id}`)
+        .setLabel("Son -")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(!hasChannel),
+      new ButtonBuilder()
+        .setCustomId(`prv_music_volup:${id}`)
+        .setLabel("Son +")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(!hasChannel)
+    );
+    container.addActionRowComponents(rowMusic1).addActionRowComponents(rowMusic2).addActionRowComponents(rowMusic3);
   }
 
   return { components: [container], ...V2_MSG };

@@ -103,7 +103,7 @@ function loadDeps() {
   }
 }
 
-/** @type {Map<string, { queue: Array<{ title: string, url: string, requesterId: string }>, volume: number, textChannelId: string | null, player: *, connection: *, lavalinkPlayer: import('shoukaku').Player | null, ytDlpProcess: import('child_process').ChildProcess | null }>} */
+/** @type {Map<string, { queue: Array<{ title: string, url: string, requesterId: string }>, volume: number, textChannelId: string | null, player: *, connection: *, lavalinkPlayer: import('shoukaku').Player | null, ytDlpProcess: import('child_process').ChildProcess | null, nowPlaying: { title: string, url: string, requesterId: string } | null }>} */
 const guildStates = new Map();
 
 let ytDlpMissingLogged = false;
@@ -268,10 +268,126 @@ function getState(guildId) {
       player: null,
       connection: null,
       lavalinkPlayer: null,
-      ytDlpProcess: null
+      ytDlpProcess: null,
+      nowPlaying: null
     });
   }
   return guildStates.get(id);
+}
+
+const VOLUME_MIN = 5;
+const VOLUME_MAX = 100;
+const VOLUME_NUDGE = 10;
+
+function applyVolumeToActivePlayback(st) {
+  const vol01 = Math.min(1, Math.max(0, st.volume / 100));
+  if (st.lavalinkPlayer?.track) {
+    st.lavalinkPlayer
+      .setGlobalVolume(Math.min(1000, Math.max(0, Math.round(st.volume * 10))))
+      .catch(() => null);
+  }
+  if (loadOk && voiceMod && st.player) {
+    const { AudioPlayerStatus } = voiceMod;
+    const s = st.player.state.status;
+    if (
+      s === AudioPlayerStatus.Playing ||
+      s === AudioPlayerStatus.Paused ||
+      s === AudioPlayerStatus.Buffering
+    ) {
+      const res = st.player.state.resource;
+      if (res?.volume) res.volume.setVolume(vol01);
+    }
+  }
+}
+
+function pauseGuild(guildId) {
+  const st = getState(guildId);
+  if (st.lavalinkPlayer) {
+    if (!st.lavalinkPlayer.track) return { error: "Rien en lecture." };
+    if (st.lavalinkPlayer.paused) return { error: "Deja en pause." };
+    st.lavalinkPlayer.setPaused(true).catch(() => null);
+    return { ok: true };
+  }
+  if (!loadOk || !voiceMod) return { error: "Musique inactive." };
+  const { AudioPlayerStatus } = voiceMod;
+  if (!st.player) return { error: "Rien en lecture." };
+  const status = st.player.state.status;
+  if (status !== AudioPlayerStatus.Playing && status !== AudioPlayerStatus.Buffering) {
+    return { error: "Rien a mettre en pause (ou deja en pause)." };
+  }
+  const ok = st.player.pause();
+  return ok ? { ok: true } : { error: "Pause impossible." };
+}
+
+function resumeGuild(guildId) {
+  const st = getState(guildId);
+  if (st.lavalinkPlayer) {
+    if (!st.lavalinkPlayer.track) return { error: "Rien en lecture." };
+    if (!st.lavalinkPlayer.paused) return { error: "La lecture n'est pas en pause." };
+    st.lavalinkPlayer.setPaused(false).catch(() => null);
+    return { ok: true };
+  }
+  if (!loadOk || !voiceMod) return { error: "Musique inactive." };
+  const { AudioPlayerStatus } = voiceMod;
+  if (!st.player) return { error: "Rien en lecture." };
+  if (st.player.state.status !== AudioPlayerStatus.Paused) {
+    return { error: "La lecture n'est pas en pause." };
+  }
+  st.player.unpause();
+  return { ok: true };
+}
+
+async function restartCurrentTrackGuild(guildId) {
+  const st = getState(guildId);
+  if (!st.nowPlaying?.url) return { error: "Aucun morceau en cours." };
+  if (st.lavalinkPlayer?.track) {
+    try {
+      await st.lavalinkPlayer.seekTo(0);
+      return { ok: true };
+    } catch (e) {
+      return { error: `Impossible de revenir au debut : ${e?.message || e}` };
+    }
+  }
+  if (!loadOk || !voiceMod || !st.player) return { error: "Musique inactive." };
+  const { AudioPlayerStatus } = voiceMod;
+  const status = st.player.state.status;
+  if (
+    status !== AudioPlayerStatus.Playing &&
+    status !== AudioPlayerStatus.Paused &&
+    status !== AudioPlayerStatus.Buffering
+  ) {
+    return { error: "Rien en lecture." };
+  }
+  killActiveYtDlp(st);
+  st.queue.unshift({
+    title: st.nowPlaying.title,
+    url: st.nowPlaying.url,
+    requesterId: st.nowPlaying.requesterId || "0"
+  });
+  st.player.stop(true);
+  return { ok: true };
+}
+
+function setGuildVolume(guildId, percent) {
+  const st = getState(guildId);
+  const n = Number(percent);
+  if (!Number.isFinite(n)) return { error: "Nombre invalide." };
+  const v = Math.min(VOLUME_MAX, Math.max(VOLUME_MIN, Math.round(n)));
+  st.volume = v;
+  applyVolumeToActivePlayback(st);
+  return { ok: true, volume: v };
+}
+
+function nudgeGuildVolume(guildId, delta) {
+  const st = getState(guildId);
+  const v = Math.min(VOLUME_MAX, Math.max(VOLUME_MIN, st.volume + delta));
+  st.volume = v;
+  applyVolumeToActivePlayback(st);
+  return { ok: true, volume: v };
+}
+
+function getGuildVolume(guildId) {
+  return getState(guildId).volume;
 }
 
 function wireLavalinkPlayer(guild, player) {
@@ -663,6 +779,7 @@ async function playNextLavalink(guild, failDepth = 0) {
   if (!player) return;
   const next = st.queue.shift();
   if (!next) {
+    st.nowPlaying = null;
     try {
       await player.stopTrack();
     } catch {
@@ -688,6 +805,11 @@ async function playNextLavalink(guild, failDepth = 0) {
       track: { encoded },
       volume: Math.min(1000, Math.max(0, Math.round(st.volume * 10)))
     });
+    st.nowPlaying = {
+      title: next.title,
+      url: next.url,
+      requesterId: next.requesterId || "0"
+    };
   } catch (e) {
     console.error("[MUSIC] Lavalink playTrack", e?.message || e);
     await playNextLavalink(guild, failDepth + 1);
@@ -705,9 +827,20 @@ async function playNext(guild, failDepth = 0) {
   if (!st.player || !st.connection) return;
   const next = st.queue.shift();
   killActiveYtDlp(st);
-  if (!next) return;
+  if (!next) {
+    st.nowPlaying = null;
+    return;
+  }
 
   applyPlayDlYoutubeCookie();
+
+  const markPlaying = () => {
+    st.nowPlaying = {
+      title: next.title,
+      url: next.url,
+      requesterId: next.requesterId || "0"
+    };
+  };
 
   try {
     try {
@@ -736,6 +869,7 @@ async function playNext(guild, failDepth = 0) {
         });
         if (resource.volume) resource.volume.setVolume(Math.min(1, Math.max(0, st.volume / 100)));
         st.player.play(resource);
+        markPlaying();
         return;
       }
     } catch (ytDlpErr) {
@@ -759,6 +893,7 @@ async function playNext(guild, failDepth = 0) {
       });
       if (resource.volume) resource.volume.setVolume(Math.min(1, Math.max(0, st.volume / 100)));
       st.player.play(resource);
+      markPlaying();
       return;
     } catch (playDlErr) {
       console.warn("[MUSIC] playNext play-dl a echoue -> ytdl-core :", playDlErr?.message || playDlErr);
@@ -823,6 +958,7 @@ async function playNext(guild, failDepth = 0) {
         });
         if (resource.volume) resource.volume.setVolume(Math.min(1, Math.max(0, st.volume / 100)));
         st.player.play(resource);
+        markPlaying();
         return;
       } catch (e) {
         lastAttemptErr = e;
@@ -1037,6 +1173,7 @@ function leaveGuild(guildId, client = null) {
   if (st) {
     st.queue = [];
     st.connection = null;
+    st.nowPlaying = null;
   }
 }
 
@@ -1065,6 +1202,7 @@ function skipGuild(guildId) {
 function stopGuild(guildId) {
   const st = getState(guildId);
   st.queue = [];
+  st.nowPlaying = null;
   killActiveYtDlp(st);
   if (st.lavalinkPlayer) {
     st.lavalinkPlayer.stopTrack().catch(() => null);
@@ -1191,5 +1329,14 @@ module.exports = {
   getUserPlayHistoryUnique,
   recordPlayHistory,
   destroyAllConnections,
-  getState
+  getState,
+  pauseGuild,
+  resumeGuild,
+  restartCurrentTrackGuild,
+  setGuildVolume,
+  nudgeGuildVolume,
+  getGuildVolume,
+  VOLUME_MIN,
+  VOLUME_MAX,
+  VOLUME_NUDGE
 };

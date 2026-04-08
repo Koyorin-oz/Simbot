@@ -191,6 +191,45 @@ async function handleMusicPanelInteractions(client, interaction) {
       return true;
     }
 
+    if (p.action === "pause") {
+      const r = musicService.pauseGuild(interaction.guildId);
+      await interaction.reply({ content: r.error || "Pause.", flags: MessageFlags.Ephemeral });
+      return true;
+    }
+
+    if (p.action === "resume") {
+      const r = musicService.resumeGuild(interaction.guildId);
+      await interaction.reply({ content: r.error || "Lecture reprise.", flags: MessageFlags.Ephemeral });
+      return true;
+    }
+
+    if (p.action === "restart") {
+      const r = await musicService.restartCurrentTrackGuild(interaction.guildId);
+      await interaction.reply({
+        content: r.error || "Morceau relance depuis le debut.",
+        flags: MessageFlags.Ephemeral
+      });
+      return true;
+    }
+
+    if (p.action === "voldown") {
+      const r = musicService.nudgeGuildVolume(interaction.guildId, -musicService.VOLUME_NUDGE);
+      await interaction.reply({
+        content: r.error || `Volume : **${r.volume}%**.`,
+        flags: MessageFlags.Ephemeral
+      });
+      return true;
+    }
+
+    if (p.action === "volup") {
+      const r = musicService.nudgeGuildVolume(interaction.guildId, musicService.VOLUME_NUDGE);
+      await interaction.reply({
+        content: r.error || `Volume : **${r.volume}%**.`,
+        flags: MessageFlags.Ephemeral
+      });
+      return true;
+    }
+
     if (p.action === "search") {
       const modal = new ModalBuilder()
         .setCustomId(`music_md:search:${p.userId}`)

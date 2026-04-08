@@ -24,6 +24,24 @@ module.exports = {
         )
     )
     .addSubcommand((s) => s.setName("skip").setDescription("Passer au morceau suivant"))
+    .addSubcommand((s) => s.setName("pause").setDescription("Mettre la lecture en pause"))
+    .addSubcommand((s) => s.setName("reprendre").setDescription("Reprendre la lecture apres une pause"))
+    .addSubcommand((s) =>
+      s.setName("recommencer").setDescription("Rejouer le morceau actuel depuis le debut")
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("volume")
+        .setDescription("Afficher ou regler le volume (5-100 %)")
+        .addIntegerOption((o) =>
+          o
+            .setName("niveau")
+            .setDescription("Volume en pourcent (5-100). Omis = affiche le volume actuel.")
+            .setMinValue(1)
+            .setMaxValue(100)
+            .setRequired(false)
+        )
+    )
     .addSubcommand((s) => s.setName("stop").setDescription("Vider la file et arreter la lecture"))
     .addSubcommand((s) => s.setName("queue").setDescription("Afficher la file d'attente"))
     .addSubcommand((s) =>
@@ -95,6 +113,51 @@ module.exports = {
       const r = musicService.skipGuild(interaction.guildId);
       await interaction.reply({
         content: r.error ? r.error : "Morceau suivant…",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    if (sub === "pause") {
+      const r = musicService.pauseGuild(interaction.guildId);
+      await interaction.reply({
+        content: r.error ? r.error : "Pause.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    if (sub === "reprendre") {
+      const r = musicService.resumeGuild(interaction.guildId);
+      await interaction.reply({
+        content: r.error ? r.error : "Lecture reprise.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    if (sub === "recommencer") {
+      const r = await musicService.restartCurrentTrackGuild(interaction.guildId);
+      await interaction.reply({
+        content: r.error ? r.error : "Morceau relance depuis le debut.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    if (sub === "volume") {
+      const lvl = interaction.options.getInteger("niveau");
+      if (lvl == null) {
+        const v = musicService.getGuildVolume(interaction.guildId);
+        await interaction.reply({
+          content: `Volume actuel sur ce serveur : **${v}%** (min. ${musicService.VOLUME_MIN} %).`,
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+      const r = musicService.setGuildVolume(interaction.guildId, lvl);
+      await interaction.reply({
+        content: r.error ? r.error : `Volume regle a **${r.volume}%**.`,
         flags: MessageFlags.Ephemeral
       });
       return;
