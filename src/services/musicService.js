@@ -8,6 +8,11 @@ let YouTube = null;
 let loadOk = false;
 let loadErr = null;
 
+/** Options YouTube : inclure WEB car sans lui, certains extraits n’ont aucun format (erreur « Failed to find any playable formats »). */
+const YTDL_INFO_OPTIONS = {
+  playerClients: ["WEB", "WEB_EMBEDDED", "IOS", "ANDROID", "TV"]
+};
+
 function loadDeps() {
   if (voiceMod === false) return false;
   if (loadOk) return true;
@@ -179,7 +184,7 @@ async function resolveQueryToYoutubeTracks(query) {
   if (ytdl.validateURL(raw)) {
     let info;
     try {
-      info = await ytdl.getBasicInfo(raw);
+      info = await ytdl.getBasicInfo(raw, YTDL_INFO_OPTIONS);
     } catch (e) {
       return { error: `Lien YouTube invalide ou indisponible : ${e.message || e}` };
     }
@@ -369,20 +374,78 @@ async function playNext(guild, failDepth = 0) {
   if (!st.player || !st.connection) return;
   const next = st.queue.shift();
   if (!next) return;
+  const dlBase = {
+    ...YTDL_INFO_OPTIONS,
+    highWaterMark: 1 << 25,
+    dlChunkSize: 0
+  };
+  const formatStrategies = [
+    { label: "audioandvideo+lowest", opts: { filter: "audioandvideo", quality: "lowest" } },
+    { label: "audioandvideo+highest", opts: { filter: "audioandvideo", quality: "highest" } },
+    { label: "audio+highestaudio", opts: { filter: "audio", quality: "highestaudio" } },
+    { label: "audioonly+highestaudio", opts: { filter: "audioonly", quality: "highestaudio" } },
+    { label: "any+highest", opts: { quality: "highest" } }
+  ];
   try {
-    const raw = ytdl(next.url, {
-      filter: "audioonly",
-      quality: "highestaudio",
-      highWaterMark: 1 << 25,
-      dlChunkSize: 0
-    });
-    const { stream, type } = await voiceMod.demuxProbe(raw);
-    const resource = voiceMod.createAudioResource(stream, {
-      inputType: type,
-      inlineVolume: true
-    });
-    if (resource.volume) resource.volume.setVolume(Math.min(1, Math.max(0, st.volume / 100)));
-    st.player.play(resource);
+    let info;
+    try {
+      info = await ytdl.getInfo(next.url, dlBase);
+    } catch (e) {
+      console.error("[MUSIC] playNext getInfo", e?.message || e);
+      await playNext(guild, failDepth + 1);
+      return;
+    }
+
+    let lastAttemptErr = null;
+    for (let i = 0; i < formatStrategies.length; i++) {
+      const { label, opts } = formatStrategies[i];
+      let format;
+      try {
+        format = ytdl.chooseFormat(info.formats, opts);
+      } catch (e) {
+        lastAttemptErr = e;
+        continue;
+      }
+      if (!format?.url) continue;
+
+      try {
+        const raw = ytdl.downloadFromInfo(info, { ...dlBase, format });
+        let stream;
+        let inputType;
+        try {
+          const probed = await voiceMod.demuxProbe(raw);
+          stream = probed.stream;
+          inputType = probed.type;
+        } catch (probeErr) {
+          try {
+            raw.destroy?.();
+          } catch {
+            /* ignore */
+          }
+          console.warn("[MUSIC] playNext demuxProbe -> Arbitrary", label, probeErr?.message || probeErr);
+          stream = ytdl.downloadFromInfo(info, { ...dlBase, format });
+          inputType = voiceMod.StreamType.Arbitrary;
+        }
+
+        if (i > 0) {
+          console.warn("[MUSIC] playNext format strategy", label);
+        }
+
+        const resource = voiceMod.createAudioResource(stream, {
+          inputType,
+          inlineVolume: true
+        });
+        if (resource.volume) resource.volume.setVolume(Math.min(1, Math.max(0, st.volume / 100)));
+        st.player.play(resource);
+        return;
+      } catch (e) {
+        lastAttemptErr = e;
+        console.warn("[MUSIC] playNext strategy failed", label, e?.message || e);
+      }
+    }
+
+    console.error("[MUSIC] playNext no playable strategy", lastAttemptErr?.message || lastAttemptErr);
+    await playNext(guild, failDepth + 1);
   } catch (e) {
     console.error("[MUSIC] playNext", e?.message || e);
     await playNext(guild, failDepth + 1);
