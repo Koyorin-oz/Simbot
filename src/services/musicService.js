@@ -1,5 +1,7 @@
 "use strict";
 
+const { spawn } = require("child_process");
+const fs = require("fs");
 const config = require("../config");
 
 let voiceMod = null;
@@ -87,8 +89,71 @@ function loadDeps() {
   }
 }
 
-/** @type {Map<string, { queue: Array<{ title: string, url: string, requesterId: string }>, volume: number, textChannelId: string | null }>} */
+/** @type {Map<string, { queue: Array<{ title: string, url: string, requesterId: string }>, volume: number, textChannelId: string | null, player: *, connection: *, ytDlpProcess: import('child_process').ChildProcess | null }>} */
 const guildStates = new Map();
+
+let ytDlpMissingLogged = false;
+
+function killActiveYtDlp(st) {
+  if (!st?.ytDlpProcess) return;
+  try {
+    st.ytDlpProcess.removeAllListeners?.();
+    st.ytDlpProcess.kill("SIGKILL");
+  } catch {
+    /* ignore */
+  }
+  st.ytDlpProcess = null;
+}
+
+/** Binaire yt-dlp : YT_DLP_PATH ou celui installe avec youtube-dl-exec (postinstall npm). */
+function resolveYtDlpBinary() {
+  const custom = String(config.music?.ytDlpBinaryPath || "").trim();
+  if (custom && fs.existsSync(custom)) return custom;
+  try {
+    const { constants } = require("youtube-dl-exec");
+    if (constants?.YOUTUBE_DL_PATH && fs.existsSync(constants.YOUTUBE_DL_PATH)) {
+      return constants.YOUTUBE_DL_PATH;
+    }
+  } catch {
+    /* ignore */
+  }
+  if (!ytDlpMissingLogged) {
+    ytDlpMissingLogged = true;
+    console.warn(
+      "[MUSIC] Aucun binaire yt-dlp trouve. Apres `npm install`, le paquet youtube-dl-exec place yt-dlp dans node_modules/youtube-dl-exec/bin — ou definis YT_DLP_PATH."
+    );
+  }
+  return null;
+}
+
+/**
+ * Flux audio stdout (sans passer par le wrapper youtube-dl-exec qui bufferise stdout).
+ * Client Android souvent plus tolerant que le player WEB pour les 403.
+ */
+function spawnYtDlpAudioStdout(url) {
+  const bin = resolveYtDlpBinary();
+  if (!bin) return null;
+  const cookie = String(config.music?.youtubeCookie || "").trim();
+  const args = [
+    "-f",
+    "bestaudio/best/worst",
+    "-o",
+    "-",
+    "--no-warnings",
+    "--no-playlist",
+    "--quiet",
+    "--no-check-certificates",
+    "--extractor-args",
+    "youtube:player_client=android",
+    "--socket-timeout",
+    "30"
+  ];
+  if (cookie) {
+    args.push("--add-header", `Cookie:${cookie.replace(/\r|\n/g, "")}`);
+  }
+  args.push(String(url).trim());
+  return spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+}
 
 let spotifyToken = null;
 let spotifyTokenExp = 0;
@@ -100,7 +165,14 @@ function isEnabled() {
 function getState(guildId) {
   const id = String(guildId);
   if (!guildStates.has(id)) {
-    guildStates.set(id, { queue: [], volume: 100, textChannelId: null, player: null, connection: null });
+    guildStates.set(id, {
+      queue: [],
+      volume: 100,
+      textChannelId: null,
+      player: null,
+      connection: null,
+      ytDlpProcess: null
+    });
   }
   return guildStates.get(id);
 }
@@ -442,6 +514,7 @@ async function playNext(guild, failDepth = 0) {
   const st = getState(guild.id);
   if (!st.player || !st.connection) return;
   const next = st.queue.shift();
+  killActiveYtDlp(st);
   if (!next) return;
 
   applyPlayDlYoutubeCookie();
@@ -465,7 +538,41 @@ async function playNext(guild, failDepth = 0) {
       st.player.play(resource);
       return;
     } catch (playDlErr) {
-      console.warn("[MUSIC] playNext play-dl", playDlErr?.message || playDlErr);
+      console.warn("[MUSIC] playNext play-dl a echoue -> essai yt-dlp puis ytdl-core :", playDlErr?.message || playDlErr);
+    }
+
+    try {
+      const proc = spawnYtDlpAudioStdout(next.url);
+      if (proc?.stdout) {
+        st.ytDlpProcess = proc;
+        proc.stderr?.on("data", (buf) => {
+          const line = buf.toString().trim().split("\n").pop();
+          if (line && !/^\[download\]/.test(line)) {
+            console.warn("[MUSIC] yt-dlp stderr:", line.slice(0, 220));
+          }
+        });
+        proc.on("error", (err) => {
+          console.error("[MUSIC] yt-dlp", err?.message || err);
+          if (st.ytDlpProcess === proc) st.ytDlpProcess = null;
+        });
+        proc.on("exit", (code, sig) => {
+          if (code && code !== 0 && sig !== "SIGKILL") {
+            console.warn("[MUSIC] yt-dlp exit", code, sig || "");
+          }
+          if (st.ytDlpProcess === proc) st.ytDlpProcess = null;
+        });
+        const resource = voiceMod.createAudioResource(proc.stdout, {
+          inputType: voiceMod.StreamType.Arbitrary,
+          inlineVolume: true
+        });
+        if (resource.volume) resource.volume.setVolume(Math.min(1, Math.max(0, st.volume / 100)));
+        st.player.play(resource);
+        console.warn("[MUSIC] playNext source=yt-dlp (ffmpeg decode)");
+        return;
+      }
+    } catch (ytDlpErr) {
+      console.warn("[MUSIC] playNext yt-dlp", ytDlpErr?.message || ytDlpErr);
+      killActiveYtDlp(st);
     }
 
     const dlBase = ytdlRequestOpts();
@@ -650,6 +757,7 @@ function leaveGuild(guildId) {
     }
   }
   const st = guildStates.get(gid);
+  killActiveYtDlp(st);
   if (st?.player) {
     try {
       st.player.stop(true);
@@ -690,6 +798,7 @@ function stopGuild(guildId) {
   if (!loadOk || !voiceMod) return { error: "Musique inactive." };
   const st = getState(guildId);
   st.queue = [];
+  killActiveYtDlp(st);
   try {
     st.player?.stop(true);
   } catch {
@@ -772,6 +881,7 @@ function destroyAllConnections() {
       /* ignore */
     }
     const st = guildStates.get(gid);
+    killActiveYtDlp(st);
     if (st?.player) {
       try {
         st.player.stop(true);

@@ -209,6 +209,8 @@ module.exports = {
     maxPlaylistTracks: Math.min(50, Math.max(5, Number(process.env.MUSIC_MAX_PLAYLIST_TRACKS) || 25)),
     /** En-tete Cookie brut (navigateur connecte a YouTube) pour limiter les 403 / flux sans URL si ytdl decroche. Optionnel : YOUTUBE_COOKIE */
     youtubeCookie: String(process.env.YOUTUBE_COOKIE || "").trim(),
+    /** Chemin absolu vers le binaire yt-dlp (prioritaire sur celui de youtube-dl-exec). Optionnel : YT_DLP_PATH */
+    ytDlpBinaryPath: String(process.env.YT_DLP_PATH || "").trim(),
     spotifyClientId: String(process.env.SPOTIFY_CLIENT_ID || "").trim(),
     spotifyClientSecret: String(process.env.SPOTIFY_CLIENT_SECRET || "").trim(),
     /**
