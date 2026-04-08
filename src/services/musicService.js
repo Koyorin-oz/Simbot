@@ -421,10 +421,12 @@ function getVoiceChannelForMember(member) {
 
 /**
  * Depuis le panneau vocal prive : le membre doit etre dans le salon session (si defini).
+ * Role staff musique : n’importe quel salon vocal suffit (le bot rejoint le vocal du staff).
  */
 function getVoiceForPrivatePanel(member, client, guildId, ownerId) {
   const base = getVoiceChannelForMember(member);
   if (base.error) return base;
+  if (memberHasPrivateRoomMusicBypass(member)) return base;
   const s = client.privateRoomSessions?.get(`${guildId}:${ownerId}`);
   if (s?.voiceChannelId && base.channel.id !== s.voiceChannelId) {
     return {
