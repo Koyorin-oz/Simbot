@@ -132,15 +132,20 @@ async function handleMusicPanelInteractions(client, interaction) {
   if (interaction.isButton() && interaction.customId.startsWith("music_pb:")) {
     const p = parseMusicButton(interaction.customId);
     if (!p) return false;
-    if (p.userId !== interaction.user.id) {
+    if (
+      p.userId !== interaction.user.id &&
+      !musicService.memberHasPrivateRoomMusicBypass(interaction.member)
+    ) {
       await interaction
         .reply({ content: "Ce panneau ne t'est pas destine.", flags: MessageFlags.Ephemeral })
         .catch(() => null);
       return true;
     }
 
+    const actorId = interaction.user.id;
+
     if (p.action === "refresh") {
-      const payload = buildMusicPanelPayload(p.userId);
+      const payload = buildMusicPanelPayload(actorId);
       await interaction.update(payload).catch(() => null);
       return true;
     }
@@ -250,7 +255,7 @@ async function handleMusicPanelInteractions(client, interaction) {
 
     if (p.action === "pladd") {
       const modal = new ModalBuilder()
-        .setCustomId(`music_md:pladd:${p.userId}`)
+        .setCustomId(`music_md:pladd:${actorId}`)
         .setTitle("Ajouter a ta playlist");
       modal.addComponents(
         new ActionRowBuilder().addComponents(
@@ -339,7 +344,7 @@ async function handleMusicPanelInteractions(client, interaction) {
 
     if (p.action === "search") {
       const modal = new ModalBuilder()
-        .setCustomId(`music_md:search:${p.userId}`)
+        .setCustomId(`music_md:search:${actorId}`)
         .setTitle("Rechercher une musique");
       modal.addComponents(
         new ActionRowBuilder().addComponents(
@@ -358,7 +363,7 @@ async function handleMusicPanelInteractions(client, interaction) {
 
     if (p.action === "link") {
       const modal = new ModalBuilder()
-        .setCustomId(`music_md:link:${p.userId}`)
+        .setCustomId(`music_md:link:${actorId}`)
         .setTitle("Coller un lien");
       modal.addComponents(
         new ActionRowBuilder().addComponents(
@@ -377,7 +382,7 @@ async function handleMusicPanelInteractions(client, interaction) {
 
     if (p.action === "saveurl") {
       const modal = new ModalBuilder()
-        .setCustomId(`music_md:save:${p.userId}`)
+        .setCustomId(`music_md:save:${actorId}`)
         .setTitle("Lien Spotify (panneau vocal prive)");
       modal.addComponents(
         new ActionRowBuilder().addComponents(

@@ -214,8 +214,8 @@ module.exports = {
     spotifyClientId: String(process.env.SPOTIFY_CLIENT_ID || "").trim(),
     spotifyClientSecret: String(process.env.SPOTIFY_CLIENT_SECRET || "").trim(),
     /**
-     * Dans un vocal prive cree par le bot : seul l’owner du salon peut lancer la musique ;
-     * ce role bypass (staff). Surcharge : MUSIC_PRIVATE_ROOM_STAFF_ROLE_ID
+     * Staff musique : meme role pour bypass vocal prive (bot) et pour utiliser le **panneau musique**
+     * d’un autre membre (boutons suffixes par leur userId). Surcharge : MUSIC_PRIVATE_ROOM_STAFF_ROLE_ID
      */
     privateRoomStaffBypassRoleId: String(
       process.env.MUSIC_PRIVATE_ROOM_STAFF_ROLE_ID || "740999121812586567"

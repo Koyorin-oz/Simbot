@@ -1393,6 +1393,7 @@ module.exports = {
   getVoiceChannelForMember,
   getVoiceForPrivatePanel,
   assertPrivateRoomMusicAccess,
+  memberHasPrivateRoomMusicBypass,
   joinChannel,
   leaveGuild,
   skipGuild,
