@@ -219,7 +219,16 @@ module.exports = {
      */
     privateRoomStaffBypassRoleId: String(
       process.env.MUSIC_PRIVATE_ROOM_STAFF_ROLE_ID || "740999121812586567"
-    ).trim()
+    ).trim(),
+    /**
+     * Lavalink (serveur Java separe) + Shoukaku : si LAVALINK_HOST et LAVALINK_PASSWORD sont definis,
+     * la lecture vocale passe par le noeud (souvent plus stable que le flux direct YouTube).
+     */
+    lavalinkHost: String(process.env.LAVALINK_HOST || "").trim(),
+    lavalinkPort: Math.min(65535, Math.max(1, Number(process.env.LAVALINK_PORT) || 2333)),
+    lavalinkPassword: String(process.env.LAVALINK_PASSWORD || "").trim(),
+    lavalinkSecure: String(process.env.LAVALINK_SECURE || "").toLowerCase() === "true",
+    lavalinkNodeName: String(process.env.LAVALINK_NODE_NAME || "main").trim() || "main"
   },
 
   /** Salons vocaux temporaires : rejoindre le lobby = creation auto du vocal prive + chat associe. */

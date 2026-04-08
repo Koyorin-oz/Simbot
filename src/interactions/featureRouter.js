@@ -717,7 +717,7 @@ async function handlePrivateRoomInteractions(client, interaction) {
       }
 
       if (prefix === "prv_music_leave") {
-        musicService.leaveGuild(interaction.guildId);
+        musicService.leaveGuild(interaction.guildId, client);
         await interaction.reply({
           content: "Musique arretee, bot deconnecte du vocal.",
           flags: MessageFlags.Ephemeral

@@ -25,6 +25,9 @@ client.shopSessions = new Map();
 client.giveaways = new Map();
 client.prisma = new PrismaClient();
 
+const { tryAttachLavalink } = require("./services/lavalinkService");
+tryAttachLavalink(client);
+
 loadCommands(client);
 loadEvents(client);
 
@@ -46,7 +49,7 @@ client.login(discordToken);
 process.on("SIGINT", async () => {
   try {
     const { destroyAllConnections } = require("./services/musicService");
-    destroyAllConnections();
+    destroyAllConnections(client);
   } catch {
     /* ignore */
   }

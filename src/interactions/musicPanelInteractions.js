@@ -168,7 +168,7 @@ async function handleMusicPanelInteractions(client, interaction) {
     }
 
     if (p.action === "leave") {
-      musicService.leaveGuild(interaction.guildId);
+      musicService.leaveGuild(interaction.guildId, client);
       await interaction.reply({
         content: "Bot deconnecte du vocal, file videe.",
         flags: MessageFlags.Ephemeral

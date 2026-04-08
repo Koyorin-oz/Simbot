@@ -77,7 +77,7 @@ module.exports = {
     }
 
     if (sub === "leave") {
-      musicService.leaveGuild(interaction.guildId);
+      musicService.leaveGuild(interaction.guildId, client);
       await interaction.reply({ content: "Deconnecte du vocal et file videe.", flags: MessageFlags.Ephemeral });
       return;
     }

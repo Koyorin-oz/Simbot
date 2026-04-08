@@ -3,6 +3,7 @@
 const { spawn } = require("child_process");
 const fs = require("fs");
 const config = require("../config");
+const lavalink = require("./lavalinkService");
 
 let voiceMod = null;
 /** Lecture / recherche YouTube via play-dl (flux audio + decipher separes de ytdl-core). */
@@ -89,7 +90,7 @@ function loadDeps() {
   }
 }
 
-/** @type {Map<string, { queue: Array<{ title: string, url: string, requesterId: string }>, volume: number, textChannelId: string | null, player: *, connection: *, ytDlpProcess: import('child_process').ChildProcess | null }>} */
+/** @type {Map<string, { queue: Array<{ title: string, url: string, requesterId: string }>, volume: number, textChannelId: string | null, player: *, connection: *, lavalinkPlayer: import('shoukaku').Player | null, ytDlpProcess: import('child_process').ChildProcess | null }>} */
 const guildStates = new Map();
 
 let ytDlpMissingLogged = false;
@@ -171,10 +172,34 @@ function getState(guildId) {
       textChannelId: null,
       player: null,
       connection: null,
+      lavalinkPlayer: null,
       ytDlpProcess: null
     });
   }
   return guildStates.get(id);
+}
+
+function wireLavalinkPlayer(guild, player) {
+  player.removeAllListeners("end");
+  player.removeAllListeners("exception");
+  player.on("end", (ev) => {
+    if (ev.reason === "replaced") return;
+    playNext(guild).catch(() => null);
+  });
+  player.on("exception", (ev) => {
+    console.error("[MUSIC] Lavalink exception", ev?.exception?.message || ev);
+    playNext(guild).catch(() => null);
+  });
+}
+
+function isPlaybackIdle(st) {
+  if (st.lavalinkPlayer) {
+    return !st.lavalinkPlayer.track;
+  }
+  if (!loadOk || !voiceMod) return true;
+  const { AudioPlayerStatus } = voiceMod;
+  const status = st.player?.state?.status;
+  return !st.player || status === AudioPlayerStatus.Idle;
 }
 
 function getVoiceChannelForMember(member) {
@@ -316,9 +341,17 @@ async function youtubeSearchOne(query) {
 /**
  * @returns {Promise<{ tracks?: Array<{ title: string, url: string }>, error?: string }>}
  */
-async function resolveQueryToYoutubeTracks(query) {
+async function resolveQueryToYoutubeTracks(query, guild = null) {
   const raw = String(query || "").trim();
   if (!raw) return { error: "Texte vide." };
+
+  const maxPl = config.music?.maxPlaylistTracks ?? 25;
+  if (guild?.client) {
+    const fromLl = await lavalink.tryResolveQueryWithLavalink(guild.client, raw, maxPl);
+    if (fromLl?.tracks?.length) {
+      return { tracks: fromLl.tracks };
+    }
+  }
 
   if (isYoutubeWatchUrl(raw)) {
     applyPlayDlYoutubeCookie();
@@ -471,6 +504,7 @@ function guessSourceFromQuery(q) {
   if (/open\.spotify\.com\/.*playlist/i.test(s)) return "spotify_playlist";
   if (/open\.spotify\.com\/.*album/i.test(s)) return "spotify_album";
   if (/open\.spotify\.com\/.*track/i.test(s)) return "spotify_track";
+  if (/youtube\.com|youtu\.be/i.test(s) && /playlist\?|list=/i.test(s)) return "youtube_playlist";
   return "youtube";
 }
 
@@ -508,10 +542,52 @@ async function getUserPlayHistoryUnique(prisma, guildId, userId, limit = 25) {
   return out;
 }
 
-async function playNext(guild, failDepth = 0) {
-  if (!loadOk || !voiceMod || !play || !ytdl) return;
+async function playNextLavalink(guild, failDepth = 0) {
   if (failDepth > 12) return;
   const st = getState(guild.id);
+  const player = st.lavalinkPlayer;
+  if (!player) return;
+  const next = st.queue.shift();
+  if (!next) {
+    try {
+      await player.stopTrack();
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+  let res;
+  try {
+    res = await player.node.rest.resolve(next.url);
+  } catch (e) {
+    console.error("[MUSIC] Lavalink resolve (file)", e?.message || e);
+    await playNextLavalink(guild, failDepth + 1);
+    return;
+  }
+  const encoded = lavalink.extractEncodedFromResolve(res);
+  if (!encoded) {
+    await playNextLavalink(guild, failDepth + 1);
+    return;
+  }
+  try {
+    await player.playTrack({
+      track: { encoded },
+      volume: Math.min(1000, Math.max(0, Math.round(st.volume * 10)))
+    });
+  } catch (e) {
+    console.error("[MUSIC] Lavalink playTrack", e?.message || e);
+    await playNextLavalink(guild, failDepth + 1);
+  }
+}
+
+async function playNext(guild, failDepth = 0) {
+  if (failDepth > 12) return;
+  const st = getState(guild.id);
+  if (st.lavalinkPlayer && lavalink.isLavalinkConfigured() && guild.client?.shoukaku) {
+    await playNextLavalink(guild, failDepth);
+    return;
+  }
+  if (!loadOk || !voiceMod || !play || !ytdl) return;
   if (!st.player || !st.connection) return;
   const next = st.queue.shift();
   killActiveYtDlp(st);
@@ -673,14 +749,78 @@ function ensurePlayer(guild) {
  * @param {{ member?: import('discord.js').GuildMember, client?: import('discord.js').Client }} [options]
  */
 async function joinChannel(guild, channel, options = {}) {
-  if (!loadDeps()) {
-    return { error: loadErr?.message ? `Module musique indisponible : ${loadErr.message}` : "Module musique indisponible." };
-  }
   const { member, client } = options;
   if (member && client) {
     const gate = assertPrivateRoomMusicAccess(member, client, guild.id, channel);
     if (gate.error) return { error: gate.error };
   }
+
+  if (lavalink.isLavalinkConfigured() && client?.shoukaku) {
+    if (loadOk && voiceMod) {
+      try {
+        voiceMod.getVoiceConnection(guild.id)?.destroy();
+      } catch {
+        /* ignore */
+      }
+    }
+    const stLl = getState(guild.id);
+    if (stLl.player) {
+      try {
+        stLl.player.stop(true);
+        stLl.player.removeAllListeners();
+      } catch {
+        /* ignore */
+      }
+      stLl.player = null;
+    }
+    stLl.connection = null;
+
+    const sh = client.shoukaku;
+    const existingConn = sh.connections.get(guild.id);
+    if (existingConn && existingConn.channelId === channel.id) {
+      const existingPlayer = sh.players.get(guild.id);
+      if (existingPlayer) {
+        stLl.lavalinkPlayer = existingPlayer;
+        wireLavalinkPlayer(guild, existingPlayer);
+        return { ok: true, connection: null };
+      }
+    }
+    if (sh.connections.has(guild.id) || sh.players.has(guild.id)) {
+      await sh.leaveVoiceChannel(guild.id).catch(() => {});
+    }
+    stLl.lavalinkPlayer = null;
+
+    const shardId = guild.shardId ?? 0;
+    try {
+      const player = await sh.joinVoiceChannel({
+        guildId: guild.id,
+        shardId,
+        channelId: channel.id,
+        deaf: true,
+        mute: false
+      });
+      stLl.lavalinkPlayer = player;
+      wireLavalinkPlayer(guild, player);
+      return { ok: true, connection: null };
+    } catch (e) {
+      const msg = e?.message || String(e);
+      console.error("[MUSIC] Lavalink join", msg);
+      return {
+        error: `Lavalink : impossible de rejoindre le vocal (${msg.slice(0, 140)}). Verifie que le serveur Lavalink est demarre et joignable depuis ce bot.`
+      };
+    }
+  }
+
+  if (!loadDeps()) {
+    return { error: loadErr?.message ? `Module musique indisponible : ${loadErr.message}` : "Module musique indisponible." };
+  }
+
+  const st0 = getState(guild.id);
+  if (client?.shoukaku && (client.shoukaku.players.has(guild.id) || client.shoukaku.connections.has(guild.id))) {
+    await client.shoukaku.leaveVoiceChannel(guild.id).catch(() => {});
+  }
+  st0.lavalinkPlayer = null;
+
   const {
     joinVoiceChannel,
     getVoiceConnection,
@@ -747,8 +887,13 @@ async function joinChannel(guild, channel, options = {}) {
   return { ok: true, connection };
 }
 
-function leaveGuild(guildId) {
+function leaveGuild(guildId, client = null) {
   const gid = String(guildId);
+  const st = guildStates.get(gid);
+  if (client?.shoukaku && (st?.lavalinkPlayer || client.shoukaku.players.has(gid))) {
+    client.shoukaku.leaveVoiceChannel(gid).catch(() => {});
+  }
+  if (st) st.lavalinkPlayer = null;
   if (loadOk && voiceMod) {
     try {
       voiceMod.getVoiceConnection(gid)?.destroy();
@@ -756,7 +901,6 @@ function leaveGuild(guildId) {
       /* ignore */
     }
   }
-  const st = guildStates.get(gid);
   killActiveYtDlp(st);
   if (st?.player) {
     try {
@@ -778,9 +922,14 @@ function leaveGuild(guildId) {
 }
 
 function skipGuild(guildId) {
+  const st = getState(guildId);
+  if (st.lavalinkPlayer) {
+    if (!st.lavalinkPlayer.track) return { error: "Rien en lecture." };
+    st.lavalinkPlayer.stopTrack().catch(() => null);
+    return { ok: true };
+  }
   if (!loadOk || !voiceMod) return { error: "Musique inactive." };
   const { AudioPlayerStatus } = voiceMod;
-  const st = getState(guildId);
   if (!st.player) return { error: "Rien en lecture." };
   const s = st.player.state.status;
   if (s !== AudioPlayerStatus.Playing && s !== AudioPlayerStatus.Buffering) {
@@ -795,10 +944,14 @@ function skipGuild(guildId) {
 }
 
 function stopGuild(guildId) {
-  if (!loadOk || !voiceMod) return { error: "Musique inactive." };
   const st = getState(guildId);
   st.queue = [];
   killActiveYtDlp(st);
+  if (st.lavalinkPlayer) {
+    st.lavalinkPlayer.stopTrack().catch(() => null);
+    return { ok: true };
+  }
+  if (!loadOk || !voiceMod) return { error: "Musique inactive." };
   try {
     st.player?.stop(true);
   } catch {
@@ -827,12 +980,10 @@ async function enqueueDirectTracks(guild, tracks, requesterId, prisma = null) {
   }
   if (!tracks.length) return { error: "Aucun morceau." };
   const st = getState(guild.id);
-  const { AudioPlayerStatus } = voiceMod;
   for (const t of tracks) {
     st.queue.push({ title: t.title, url: t.url, requesterId });
   }
-  const status = st.player?.state?.status;
-  const idle = !st.player || status === AudioPlayerStatus.Idle;
+  const idle = isPlaybackIdle(st);
   if (idle) await playNext(guild);
   if (prisma) {
     await recordPlayHistory(
@@ -861,14 +1012,20 @@ async function enqueueQuery(guild, query, requesterId, prisma = null) {
     return { error: loadErr?.message ? `Module musique : ${loadErr.message}` : "Module musique indisponible." };
   }
   const raw = String(query || "").trim();
-  const resolved = await resolveQueryToYoutubeTracks(raw);
+  const resolved = await resolveQueryToYoutubeTracks(raw, guild);
   if (resolved.error) return { error: resolved.error };
   const src = guessSourceFromQuery(raw);
   const tracks = resolved.tracks.map((t) => ({ title: t.title, url: t.url, source: src }));
   return enqueueDirectTracks(guild, tracks, requesterId, prisma);
 }
 
-function destroyAllConnections() {
+function destroyAllConnections(client) {
+  if (client?.shoukaku) {
+    const ids = new Set([...guildStates.keys(), ...client.shoukaku.players.keys()]);
+    for (const gid of ids) {
+      client.shoukaku.leaveVoiceChannel(gid).catch(() => {});
+    }
+  }
   if (!loadOk || !voiceMod) {
     guildStates.clear();
     return;
