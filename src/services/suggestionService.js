@@ -136,21 +136,45 @@ async function applyVote(prisma, suggestionId, userId, direction) {
   });
 }
 
+function isSuggestionOpenRow(suggestion) {
+  const s = String(suggestion?.status || "OPEN").toUpperCase();
+  return s === "OPEN";
+}
+
 /**
  * @param {{ up: number, down: number, neutral?: number }} counts
  * @param {{ pingRoleId?: string, footerIconURL?: string|null }} [opts]
  */
 function buildSuggestionMessagePayload(suggestion, counts, opts = {}) {
-  const up = Number(counts.up) || 0;
-  const down = Number(counts.down) || 0;
-  const neutral = Number(counts.neutral) || 0;
+  const rawStatus = suggestion?.status != null ? String(suggestion.status) : "OPEN";
+  const status = rawStatus.toUpperCase();
+  const isTerminal = status === "ACCEPTED" || status === "REJECTED";
+
+  let up;
+  let down;
+  let neutral;
+  if (isTerminal && suggestion.snapshotPour != null) {
+    up = Number(suggestion.snapshotPour) || 0;
+    neutral = Number(suggestion.snapshotNeutral) || 0;
+    down = Number(suggestion.snapshotContre) || 0;
+  } else {
+    up = Number(counts.up) || 0;
+    down = Number(counts.down) || 0;
+    neutral = Number(counts.neutral) || 0;
+  }
+
   const { id, authorId, title, body, imageUrl } = suggestion;
   const titleSafe = sanitizeSnippet(title, 200);
   const bodySafe = sanitizeSnippet(body, 3500);
   const pingRoleId = String(opts.pingRoleId || "").trim();
   const footerIcon = opts.footerIconURL || undefined;
 
-  const color = suggestionAccentFromVotes(up, down);
+  const color = isTerminal
+    ? status === "ACCEPTED"
+      ? 0x57f287
+      : 0xed4245
+    : suggestionAccentFromVotes(up, down);
+
   const descParts = [
     `## :bulb: ${titleSafe}`,
     "",
@@ -158,10 +182,30 @@ function buildSuggestionMessagePayload(suggestion, counts, opts = {}) {
     "",
     `**Auteur** : <@${authorId}>`,
     "",
-    `_**Votes** — Pour **${up}** · Neutre **${neutral}** · Contre **${down}**_`,
-    "_Un seul choix par membre : un nouveau bouton remplace ton vote._",
-    "_Vote avec les boutons ci-dessous._"
+    isTerminal
+      ? `_**Votes au moment de la décision** — Pour **${up}** · Neutre **${neutral}** · Contre **${down}**_`
+      : `_**Votes** — Pour **${up}** · Neutre **${neutral}** · Contre **${down}**_`
   ];
+
+  if (isTerminal) {
+    const decisionLine =
+      status === "ACCEPTED" ? "✅ **Décision : acceptée**" : "❌ **Décision : refusée**";
+    descParts.push("", decisionLine);
+    const reasonSafe = sanitizeSnippet(suggestion.moderationReason || "—", 900);
+    descParts.push("", `**Motif (staff)** : ${reasonSafe}`);
+    if (suggestion.moderatedById) {
+      if (suggestion.moderatedAt) {
+        const ts = Math.floor(new Date(suggestion.moderatedAt).getTime() / 1000);
+        descParts.push("", `_Par <@${suggestion.moderatedById}> · <t:${ts}:F>_`);
+      } else {
+        descParts.push("", `_Par <@${suggestion.moderatedById}>_`);
+      }
+    }
+  } else {
+    descParts.push("", "_Un seul choix par membre : un nouveau bouton remplace ton vote._");
+    descParts.push("_Vote avec les boutons ci-dessous._");
+  }
+
   const desc = descParts.join("\n").slice(0, 4090);
 
   const embed = new EmbedBuilder()
@@ -172,33 +216,35 @@ function buildSuggestionMessagePayload(suggestion, counts, opts = {}) {
 
   if (imageUrl) embed.setImage(imageUrl);
 
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`${VOTE_PREFIX}:${id}:up`)
-      .setLabel(`Pour · ${up}`)
-      .setEmoji("✅")
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId(`${VOTE_PREFIX}:${id}:neutral`)
-      .setLabel(`Neutre · ${neutral}`)
-      .setEmoji("➖")
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId(`${VOTE_PREFIX}:${id}:down`)
-      .setLabel(`Contre · ${down}`)
-      .setEmoji("❌")
-      .setStyle(ButtonStyle.Danger)
-  );
-
   const allowedMentions = { parse: [], users: [authorId] };
   if (pingRoleId) allowedMentions.roles = [pingRoleId];
 
   const out = {
     embeds: [embed],
-    components: [row],
+    components: isTerminal
+      ? []
+      : [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`${VOTE_PREFIX}:${id}:up`)
+              .setLabel(`Pour · ${up}`)
+              .setEmoji("✅")
+              .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+              .setCustomId(`${VOTE_PREFIX}:${id}:neutral`)
+              .setLabel(`Neutre · ${neutral}`)
+              .setEmoji("➖")
+              .setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder()
+              .setCustomId(`${VOTE_PREFIX}:${id}:down`)
+              .setLabel(`Contre · ${down}`)
+              .setEmoji("❌")
+              .setStyle(ButtonStyle.Danger)
+          )
+        ],
     allowedMentions
   };
-  if (pingRoleId) {
+  if (pingRoleId && !isTerminal) {
     out.content = `<@&${pingRoleId}>\n**Nouvelle suggestion**`;
   }
   return out;
@@ -291,6 +337,80 @@ async function submitNewSuggestion(client, interaction, { title, body, imageUrl 
   return { ok: true, url: msg.url };
 }
 
+/** ID message Discord depuis un lien canaux/... ou un snowflake seul. */
+function extractSuggestionMessageId(raw) {
+  const s = String(raw || "").trim();
+  const mCh = s.match(/channels\/(\d{17,20})\/(\d{17,20})\/(\d{17,20})/);
+  if (mCh) return mCh[3];
+  const lone = s.match(/^\d{17,20}$/);
+  if (lone) return lone[0];
+  const all = s.match(/\d{17,20}/g);
+  return all?.length ? all[all.length - 1] : null;
+}
+
+/**
+ * @param {import("discord.js").Client} client
+ * @param {object} params
+ * @param {import("discord.js").Guild} params.guild
+ * @param {string} params.moderatorUserId
+ * @param {string} params.messageId
+ * @param {"ACCEPTED"|"REJECTED"} params.decision
+ * @param {string} params.reason
+ */
+async function moderateSuggestion(client, { guild, moderatorUserId, messageId, decision, reason }) {
+  const reasonTrim = String(reason || "").trim().slice(0, 1000);
+  if (reasonTrim.length < 3) {
+    return { error: "La **raison** doit faire au moins **3** caractères." };
+  }
+
+  const sugg = await client.prisma.suggestion.findFirst({
+    where: { guildId: guild.id, messageId: String(messageId) }
+  });
+  if (!sugg) {
+    return {
+      error:
+        "Aucune suggestion liée à ce **message** (vérifie l’ID ou le lien du message dans le salon suggestions)."
+    };
+  }
+  if (!isSuggestionOpenRow(sugg)) {
+    return { error: "Cette suggestion a **déjà été traitée** (acceptée ou refusée)." };
+  }
+
+  const counts = await getVoteCounts(client.prisma, sugg.id);
+  await client.prisma.suggestion.update({
+    where: { id: sugg.id },
+    data: {
+      status: decision,
+      moderatedAt: new Date(),
+      moderatedById: moderatorUserId,
+      moderationReason: reasonTrim,
+      snapshotPour: counts.up,
+      snapshotNeutral: counts.neutral,
+      snapshotContre: counts.down
+    }
+  });
+
+  const fresh = await client.prisma.suggestion.findUnique({ where: { id: sugg.id } });
+  const ch = await guild.channels.fetch(sugg.channelId).catch(() => null);
+  if (!ch?.isTextBased?.()) {
+    return { ok: true, warn: "Base mise à jour, mais le salon du message est introuvable." };
+  }
+  const msg = await ch.messages.fetch(String(messageId)).catch(() => null);
+  if (!msg?.editable) {
+    return { ok: true, warn: "Base mise à jour, mais le message Discord est introuvable ou non modifiable." };
+  }
+
+  const pingRoleId = String(config.suggestions?.pingRoleId || "").trim();
+  const footerIconURL = guild.iconURL({ extension: "png", size: 64 }) || null;
+  const payload = buildSuggestionMessagePayload(fresh, counts, { pingRoleId, footerIconURL });
+  await msg.edit({
+    embeds: payload.embeds,
+    components: payload.components,
+    allowedMentions: payload.allowedMentions
+  });
+  return { ok: true };
+}
+
 module.exports = {
   VOTE_PREFIX,
   safeImageUrl,
@@ -298,6 +418,7 @@ module.exports = {
   isVerifiedMember,
   canViewAndVoteSuggestions,
   isSuggestionsStaff,
+  isSuggestionOpenRow,
   getVoteCounts,
   pruneDuplicateSuggestionVotes,
   applyVote,
@@ -305,5 +426,7 @@ module.exports = {
   buildSuggestionPostPayload,
   parseSuggestionVoteCustomId,
   channelMatchesStoredSuggestion,
-  submitNewSuggestion
+  submitNewSuggestion,
+  extractSuggestionMessageId,
+  moderateSuggestion
 };

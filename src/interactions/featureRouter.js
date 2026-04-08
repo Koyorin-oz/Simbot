@@ -42,7 +42,8 @@ const {
   getVoteCounts,
   applyVote,
   buildSuggestionMessagePayload,
-  canViewAndVoteSuggestions
+  canViewAndVoteSuggestions,
+  isSuggestionOpenRow
 } = require("../services/suggestionService");
 const musicService = require("../services/musicService");
 const { handleMusicPanelInteractions, runPlayQueryFlow } = require("./musicPanelInteractions");
@@ -917,16 +918,26 @@ async function handleSuggestionInteractions(client, interaction) {
       return true;
     }
 
-    await interaction.deferUpdate().catch(() => null);
-
     const { suggestionId, dir } = parsed;
     const suggestion = await client.prisma.suggestion.findUnique({ where: { id: suggestionId } });
     if (!suggestion || !channelMatchesStoredSuggestion(interaction, suggestion.channelId)) {
       await interaction
-        .followUp({ content: "Suggestion introuvable ou mauvais salon.", flags: MessageFlags.Ephemeral })
+        .reply({ content: "Suggestion introuvable ou mauvais salon.", flags: MessageFlags.Ephemeral })
         .catch(() => null);
       return true;
     }
+    if (!isSuggestionOpenRow(suggestion)) {
+      await interaction
+        .reply({
+          content:
+            "Cette suggestion est **close** : le staff a déjà tranché, tu ne peux plus voter.",
+          flags: MessageFlags.Ephemeral
+        })
+        .catch(() => null);
+      return true;
+    }
+
+    await interaction.deferUpdate().catch(() => null);
 
     try {
       await applyVote(client.prisma, suggestionId, interaction.user.id, dir);

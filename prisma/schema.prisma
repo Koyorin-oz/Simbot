@@ -111,6 +111,12 @@ model Ticket {
   @@index([guildId, ownerId, status, kind])
 }
 
+enum SuggestionStatus {
+  OPEN
+  ACCEPTED
+  REJECTED
+}
+
 /** Suggestion postee via /suggestion (message Discord Components V2). */
 model Suggestion {
   id        Int      @id @default(autoincrement())
@@ -122,6 +128,14 @@ model Suggestion {
   body      String
   imageUrl  String?
   createdAt DateTime @default(now())
+  /** OPEN = votes actifs ; ACCEPTED / REJECTED = clos, compteurs figes dans snapshot*. */
+  status              SuggestionStatus @default(OPEN)
+  moderatedAt         DateTime?
+  moderatedById       String?
+  moderationReason    String?
+  snapshotPour        Int?
+  snapshotNeutral     Int?
+  snapshotContre      Int?
   votes     SuggestionVote[]
 }
 
