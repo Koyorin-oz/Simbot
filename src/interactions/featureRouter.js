@@ -878,19 +878,20 @@ async function handlePrivateRoomInteractions(client, interaction) {
 
 async function handleSuggestionInteractions(client, interaction) {
   if (interaction.isButton() && interaction.customId.startsWith("sg_vote:")) {
-    const parsed = parseSuggestionVoteCustomId(interaction.customId);
-    if (!parsed) return false;
-
-    if (parsed.dir === "react") {
+    // Anciens messages avec le bouton « Réagir » (retiré) : eviter interaction echouee.
+    if (/:react$/.test(interaction.customId)) {
       await interaction
         .reply({
           content:
-            "Pour **commenter**, utilise le **fil de discussion** sous ce message (bouton ou fil créé automatiquement à la publication).",
+            "Ce bouton n’est plus utilisé. Pour **commenter**, ouvre le **fil de discussion** sous la suggestion.",
           flags: MessageFlags.Ephemeral
         })
         .catch(() => null);
       return true;
     }
+
+    const parsed = parseSuggestionVoteCustomId(interaction.customId);
+    if (!parsed) return false;
 
     if (interaction.user.bot) {
       await interaction.reply({ content: "Les bots ne votent pas.", flags: MessageFlags.Ephemeral }).catch(() => null);

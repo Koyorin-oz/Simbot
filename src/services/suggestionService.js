@@ -22,17 +22,14 @@ function suggestionAccentFromVotes(up, down) {
   return 0xaed581;
 }
 
-/** Format boutons : sg_vote:<id>:up|down|neutral|react */
+/** Format boutons : sg_vote:<id>:up|down|neutral */
 function parseSuggestionVoteCustomId(customId) {
   if (!customId || !String(customId).startsWith(`${VOTE_PREFIX}:`)) return null;
   const parts = String(customId).split(":");
   if (parts.length !== 3) return null;
   const suggestionId = Number(parts[1]);
   const dir = parts[2];
-  if (
-    !Number.isInteger(suggestionId) ||
-    (dir !== "up" && dir !== "down" && dir !== "neutral" && dir !== "react")
-  ) {
+  if (!Number.isInteger(suggestionId) || (dir !== "up" && dir !== "down" && dir !== "neutral")) {
     return null;
   }
   return { suggestionId, dir };
@@ -190,12 +187,7 @@ function buildSuggestionMessagePayload(suggestion, counts, opts = {}) {
       .setCustomId(`${VOTE_PREFIX}:${id}:down`)
       .setLabel(`Contre · ${down}`)
       .setEmoji("❌")
-      .setStyle(ButtonStyle.Danger),
-    new ButtonBuilder()
-      .setCustomId(`${VOTE_PREFIX}:${id}:react`)
-      .setLabel("Réagir")
-      .setEmoji("😊")
-      .setStyle(ButtonStyle.Secondary)
+      .setStyle(ButtonStyle.Danger)
   );
 
   const allowedMentions = { parse: [], users: [authorId] };
