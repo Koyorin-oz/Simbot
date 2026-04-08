@@ -1,7 +1,10 @@
 "use strict";
 
-const { spawn } = require("child_process");
+const { spawn, execFile } = require("node:child_process");
+const { promisify } = require("node:util");
 const fs = require("fs");
+
+const execFileAsync = promisify(execFile);
 const config = require("../config");
 const lavalink = require("./lavalinkService");
 
@@ -67,6 +70,16 @@ function applyPlayDlYoutubeCookie() {
 function isYoutubeWatchUrl(u) {
   if (!play || !u) return false;
   return play.yt_validate(String(u).trim()) === "video";
+}
+
+/** youtu.be / shorts → watch?v= pour play-dl et yt-dlp. */
+function normalizeYoutubeUrlInput(s) {
+  const t = String(s || "").trim();
+  const shorts = t.match(/youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/i);
+  if (shorts) return `https://www.youtube.com/watch?v=${shorts[1]}`;
+  const be = t.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/i);
+  if (be) return `https://www.youtube.com/watch?v=${be[1]}`;
+  return t;
 }
 
 function loadDeps() {
@@ -145,7 +158,7 @@ function spawnYtDlpAudioStdout(url) {
     "--quiet",
     "--no-check-certificates",
     "--extractor-args",
-    "youtube:player_client=android",
+    "youtube:player_client=android,web",
     "--socket-timeout",
     "30"
   ];
@@ -154,6 +167,88 @@ function spawnYtDlpAudioStdout(url) {
   }
   args.push(String(url).trim());
   return spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+}
+
+function ytDlpCookieHeaderArgs() {
+  const cookie = String(config.music?.youtubeCookie || "").trim();
+  if (!cookie) return [];
+  return ["--add-header", `Cookie:${cookie.replace(/\r|\n/g, "")}`];
+}
+
+/** Recherche YouTube via yt-dlp quand play-dl echoue ou ne renvoie rien d’exploitable. */
+async function ytDlpSearchFirstVideo(query) {
+  const bin = resolveYtDlpBinary();
+  if (!bin) return null;
+  const q = String(query || "").trim();
+  if (!q) return null;
+  const args = [
+    ...ytDlpCookieHeaderArgs(),
+    "-J",
+    "--flat-playlist",
+    "--playlist-items",
+    "1",
+    "--no-warnings",
+    "--socket-timeout",
+    "25",
+    "--extractor-args",
+    "youtube:player_client=android,web",
+    `ytsearch10:${q}`
+  ];
+  try {
+    const { stdout } = await execFileAsync(bin, args, {
+      maxBuffer: 6 * 1024 * 1024,
+      timeout: 40_000,
+      windowsHide: true
+    });
+    let j = JSON.parse(stdout);
+    if (j._type === "playlist" && Array.isArray(j.entries) && j.entries.length) {
+      j = j.entries[0];
+    }
+    const id = j.id;
+    const title = j.title;
+    const pageUrl = j.webpage_url && String(j.webpage_url);
+    const url = pageUrl || (id ? `https://www.youtube.com/watch?v=${id}` : "");
+    if (!url || !/^https?:\/\//i.test(url)) return null;
+    return { title: title || q, url };
+  } catch (e) {
+    console.warn("[MUSIC] yt-dlp search", String(e?.message || e).slice(0, 180));
+    return null;
+  }
+}
+
+/** Metadonnees lien YouTube si play-dl ne peut pas lire la page. */
+async function ytDlpProbeYoutubeUrl(pageUrl) {
+  const bin = resolveYtDlpBinary();
+  if (!bin) return null;
+  const u = String(pageUrl || "").trim();
+  if (!u) return null;
+  const args = [
+    ...ytDlpCookieHeaderArgs(),
+    "--dump-single-json",
+    "--no-playlist",
+    "--no-warnings",
+    "--socket-timeout",
+    "25",
+    "--extractor-args",
+    "youtube:player_client=android,web",
+    u
+  ];
+  try {
+    const { stdout } = await execFileAsync(bin, args, {
+      maxBuffer: 6 * 1024 * 1024,
+      timeout: 40_000,
+      windowsHide: true
+    });
+    const j = JSON.parse(stdout);
+    const id = j.id;
+    const title = j.title;
+    const wp = j.webpage_url && String(j.webpage_url);
+    const outUrl = wp || (id ? `https://www.youtube.com/watch?v=${id}` : "");
+    if (!outUrl || !/^https?:\/\//i.test(outUrl)) return null;
+    return { title: title || "YouTube", url: outUrl };
+  } catch {
+    return null;
+  }
 }
 
 let spotifyToken = null;
@@ -274,7 +369,11 @@ async function getSpotifyToken() {
     },
     body: "grant_type=client_credentials"
   });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    console.warn("[MUSIC] Spotify token refusé HTTP", res.status, t.slice(0, 220));
+    return null;
+  }
   const j = await res.json();
   spotifyToken = j.access_token;
   spotifyTokenExp = now + (j.expires_in || 3600) * 1000;
@@ -323,9 +422,14 @@ async function youtubeSearchOne(query) {
   try {
     videos = await play.search(q, { limit: 12, source: { youtube: "video" } });
   } catch (e) {
+    console.warn("[MUSIC] play-dl search", e?.message || e);
+    const ytd = await ytDlpSearchFirstVideo(q);
+    if (ytd?.url) return ytd;
     return { error: `YouTube : ${String(e.message || e).slice(0, 180)}` };
   }
   if (!videos?.length) {
+    const ytd = await ytDlpSearchFirstVideo(q);
+    if (ytd?.url) return ytd;
     return { error: `Aucun resultat YouTube pour : ${q.slice(0, 80)}` };
   }
   const pick =
@@ -333,6 +437,8 @@ async function youtubeSearchOne(query) {
     videos.find((v) => v?.url && isYoutubeWatchUrl(v.url)) ||
     null;
   if (!pick?.url) {
+    const ytd = await ytDlpSearchFirstVideo(q);
+    if (ytd?.url) return ytd;
     return { error: `Aucun resultat YouTube pour : ${q.slice(0, 80)}` };
   }
   return { title: pick.title || q, url: pick.url };
@@ -342,7 +448,7 @@ async function youtubeSearchOne(query) {
  * @returns {Promise<{ tracks?: Array<{ title: string, url: string }>, error?: string }>}
  */
 async function resolveQueryToYoutubeTracks(query, guild = null) {
-  const raw = String(query || "").trim();
+  let raw = normalizeYoutubeUrlInput(String(query || "").trim());
   if (!raw) return { error: "Texte vide." };
 
   const maxPl = config.music?.maxPlaylistTracks ?? 25;
@@ -359,6 +465,9 @@ async function resolveQueryToYoutubeTracks(query, guild = null) {
     try {
       info = await play.video_basic_info(raw);
     } catch (e) {
+      console.warn("[MUSIC] play-dl video_basic_info", e?.message || e);
+      const probe = await ytDlpProbeYoutubeUrl(raw);
+      if (probe?.url) return { tracks: [{ title: probe.title, url: probe.url }] };
       return { error: `Lien YouTube invalide ou indisponible : ${e.message || e}` };
     }
     const title = info?.video_details?.title || "YouTube";
@@ -429,7 +538,8 @@ function isDirectPlayQuery(raw) {
   const q = String(raw || "").trim();
   if (!q) return false;
   if (/open\.spotify\.com\//i.test(q)) return true;
-  if (loadDeps() && isYoutubeWatchUrl(q)) return true;
+  const norm = normalizeYoutubeUrlInput(q);
+  if (loadDeps() && (isYoutubeWatchUrl(norm) || isYoutubeWatchUrl(q))) return true;
   return false;
 }
 
@@ -451,6 +561,10 @@ async function searchMixedCandidates(query) {
     }
   } catch (e) {
     console.error("[MUSIC] youtube search", e?.message || e);
+    const ytd = await ytDlpSearchFirstVideo(q);
+    if (ytd?.url) {
+      out.push({ kind: "youtube", title: ytd.title, url: ytd.url });
+    }
   }
   const token = await getSpotifyToken();
   if (token) {
@@ -583,7 +697,7 @@ async function playNextLavalink(guild, failDepth = 0) {
 async function playNext(guild, failDepth = 0) {
   if (failDepth > 12) return;
   const st = getState(guild.id);
-  if (st.lavalinkPlayer && lavalink.isLavalinkConfigured() && guild.client?.shoukaku) {
+  if (st.lavalinkPlayer && lavalink.isLavalinkUsable(guild.client)) {
     await playNextLavalink(guild, failDepth);
     return;
   }
@@ -596,27 +710,6 @@ async function playNext(guild, failDepth = 0) {
   applyPlayDlYoutubeCookie();
 
   try {
-    try {
-      const src = await play.stream(next.url, { discordPlayerCompatibility: true });
-      const body = src.stream;
-      const t = String(src.type || "arbitrary");
-      const inputType =
-        t === "webm/opus"
-          ? voiceMod.StreamType.WebmOpus
-          : t === "ogg/opus"
-            ? voiceMod.StreamType.OggOpus
-            : voiceMod.StreamType.Arbitrary;
-      const resource = voiceMod.createAudioResource(body, {
-        inputType,
-        inlineVolume: true
-      });
-      if (resource.volume) resource.volume.setVolume(Math.min(1, Math.max(0, st.volume / 100)));
-      st.player.play(resource);
-      return;
-    } catch (playDlErr) {
-      console.warn("[MUSIC] playNext play-dl a echoue -> essai yt-dlp puis ytdl-core :", playDlErr?.message || playDlErr);
-    }
-
     try {
       const proc = spawnYtDlpAudioStdout(next.url);
       if (proc?.stdout) {
@@ -643,12 +736,32 @@ async function playNext(guild, failDepth = 0) {
         });
         if (resource.volume) resource.volume.setVolume(Math.min(1, Math.max(0, st.volume / 100)));
         st.player.play(resource);
-        console.warn("[MUSIC] playNext source=yt-dlp (ffmpeg decode)");
         return;
       }
     } catch (ytDlpErr) {
-      console.warn("[MUSIC] playNext yt-dlp", ytDlpErr?.message || ytDlpErr);
+      console.warn("[MUSIC] playNext yt-dlp (1er essai)", ytDlpErr?.message || ytDlpErr);
       killActiveYtDlp(st);
+    }
+
+    try {
+      const src = await play.stream(next.url, { discordPlayerCompatibility: true });
+      const body = src.stream;
+      const t = String(src.type || "arbitrary");
+      const inputType =
+        t === "webm/opus"
+          ? voiceMod.StreamType.WebmOpus
+          : t === "ogg/opus"
+            ? voiceMod.StreamType.OggOpus
+            : voiceMod.StreamType.Arbitrary;
+      const resource = voiceMod.createAudioResource(body, {
+        inputType,
+        inlineVolume: true
+      });
+      if (resource.volume) resource.volume.setVolume(Math.min(1, Math.max(0, st.volume / 100)));
+      st.player.play(resource);
+      return;
+    } catch (playDlErr) {
+      console.warn("[MUSIC] playNext play-dl a echoue -> ytdl-core :", playDlErr?.message || playDlErr);
     }
 
     const dlBase = ytdlRequestOpts();
@@ -755,7 +868,13 @@ async function joinChannel(guild, channel, options = {}) {
     if (gate.error) return { error: gate.error };
   }
 
-  if (lavalink.isLavalinkConfigured() && client?.shoukaku) {
+  if (lavalink.isLavalinkConfigured() && client?.shoukaku && !lavalink.isLavalinkUsable(client)) {
+    console.warn(
+      "[MUSIC] Lavalink configure mais noeud hors ligne ou non pret — connexion vocale en mode natif (play-dl / yt-dlp). Ajoute MUSIC_FORCE_NATIVE=true pour ignorer Lavalink."
+    );
+  }
+
+  if (lavalink.isLavalinkUsable(client)) {
     if (loadOk && voiceMod) {
       try {
         voiceMod.getVoiceConnection(guild.id)?.destroy();

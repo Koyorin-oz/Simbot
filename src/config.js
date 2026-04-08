@@ -228,7 +228,12 @@ module.exports = {
     lavalinkPort: Math.min(65535, Math.max(1, Number(process.env.LAVALINK_PORT) || 2333)),
     lavalinkPassword: String(process.env.LAVALINK_PASSWORD || "").trim(),
     lavalinkSecure: String(process.env.LAVALINK_SECURE || "").toLowerCase() === "true",
-    lavalinkNodeName: String(process.env.LAVALINK_NODE_NAME || "main").trim() || "main"
+    lavalinkNodeName: String(process.env.LAVALINK_NODE_NAME || "main").trim() || "main",
+    /**
+     * Ignorer Lavalink meme si LAVALINK_* est defini (noeud HS / Pebble sans acces au serveur Java).
+     * Lecture uniquement @discordjs/voice + play-dl / yt-dlp / ytdl-core.
+     */
+    forceNativePlayback: String(process.env.MUSIC_FORCE_NATIVE || "").toLowerCase() === "true"
   },
 
   /** Salons vocaux temporaires : rejoindre le lobby = creation auto du vocal prive + chat associe. */

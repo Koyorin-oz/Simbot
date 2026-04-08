@@ -22,6 +22,7 @@ function buildNodeUrl(host, port) {
  * @returns {import('shoukaku').Shoukaku | null}
  */
 function tryAttachLavalink(client) {
+  if (config.music?.forceNativePlayback) return null;
   if (!isLavalinkConfigured()) return null;
   if (client.shoukaku) return client.shoukaku;
 
@@ -56,6 +57,13 @@ function getConnectedIdealNode(shoukaku) {
   const node = shoukaku.getIdealNode();
   if (!node || node.state !== Constants.State.CONNECTED) return null;
   return node;
+}
+
+/** Lavalink utilisable pour join + lecture (noeud WebSocket CONNECTED). */
+function isLavalinkUsable(client) {
+  if (config.music?.forceNativePlayback) return false;
+  if (!isLavalinkConfigured() || !client?.shoukaku) return false;
+  return Boolean(getConnectedIdealNode(client.shoukaku));
 }
 
 function trackToQueueEntry(t) {
@@ -95,6 +103,7 @@ function extractEncodedFromResolve(res) {
  * @returns {Promise<{ tracks: Array<{ title: string, url: string }> } | null>}
  */
 async function tryResolveQueryWithLavalink(client, raw, maxTracks) {
+  if (!isLavalinkUsable(client)) return null;
   const node = getConnectedIdealNode(client.shoukaku);
   if (!node) return null;
 
@@ -142,6 +151,7 @@ async function tryResolveQueryWithLavalink(client, raw, maxTracks) {
 
 module.exports = {
   isLavalinkConfigured,
+  isLavalinkUsable,
   tryAttachLavalink,
   getConnectedIdealNode,
   tryResolveQueryWithLavalink,
