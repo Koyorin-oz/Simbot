@@ -7,12 +7,40 @@ const {
   TextInputStyle,
   ActionRowBuilder,
   StringSelectMenuBuilder,
-  MessageFlags
+  MessageFlags,
+  ButtonBuilder,
+  ButtonStyle
 } = require("discord.js");
 const { buildMusicPanelPayload } = require("../utils/musicPanel");
 const musicService = require("../services/musicService");
 const musicPlaylist = require("../services/musicPlaylistService");
-const { loadPrefs, savePrefs } = require("../services/privateRoomService");
+const {
+  loadPrefs,
+  savePrefs,
+  parseSavedSpotifyPlaylistUrls,
+  isSpotifyPlaylistUrl,
+  normalizeSavedSpotifyPlaylistLines,
+  MAX_SAVED_SPOTIFY_PLAYLISTS
+} = require("../services/privateRoomService");
+
+function buildSpotifySavedMenuRow(actorId) {
+  const id = String(actorId);
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`music_pb:splplay:${id}`)
+      .setLabel("Lancer dans le vocal")
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`music_pb:spladd:${id}`)
+      .setLabel("Ajouter une playlist")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`music_pb:spledit:${id}`)
+      .setLabel("Modifier les liens")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`music_pb:splclr:${id}`).setLabel("Tout effacer").setStyle(ButtonStyle.Danger)
+  );
+}
 
 function ensureSessions(client) {
   if (!client.musicInteractionSessions) client.musicInteractionSessions = new Map();
@@ -380,6 +408,146 @@ async function handleMusicPanelInteractions(client, interaction) {
       return true;
     }
 
+    if (p.action === "spotifypl") {
+      const prefs = await loadPrefs(client.prisma, interaction.guildId, actorId);
+      const urls = parseSavedSpotifyPlaylistUrls(prefs);
+      if (!urls.length) {
+        const modal = new ModalBuilder()
+          .setCustomId(`music_md:spotifypl_set:${actorId}`)
+          .setTitle("Enregistrer une playlist Spotify");
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("music_spotify_pl_url")
+              .setLabel("Lien playlist publique (open.spotify.com/...)")
+              .setStyle(TextInputStyle.Paragraph)
+              .setMinLength(12)
+              .setMaxLength(500)
+              .setRequired(true)
+          )
+        );
+        await interaction.showModal(modal);
+        return true;
+      }
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const summary = urls
+        .map((u, i) => {
+          const short = u.length > 90 ? `${u.slice(0, 87)}…` : u;
+          return `**${i + 1}.** ${short}`;
+        })
+        .join("\n");
+      await interaction.editReply({
+        content: `**Playlists Spotify enregistrees** (${urls.length}/${MAX_SAVED_SPOTIFY_PLAYLISTS})\n\n${summary}\n\nChoisis une action :`.slice(
+          0,
+          2000
+        ),
+        components: [buildSpotifySavedMenuRow(actorId)]
+      });
+      return true;
+    }
+
+    if (p.action === "spladd") {
+      const modal = new ModalBuilder()
+        .setCustomId(`music_md:spotifypl_append:${actorId}`)
+        .setTitle("Ajouter une playlist Spotify");
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("music_spotify_pl_append")
+            .setLabel("Lien playlist publique")
+            .setStyle(TextInputStyle.Paragraph)
+            .setMinLength(12)
+            .setMaxLength(500)
+            .setRequired(true)
+        )
+      );
+      await interaction.showModal(modal);
+      return true;
+    }
+
+    if (p.action === "spledit") {
+      const prefs = await loadPrefs(client.prisma, interaction.guildId, actorId);
+      const urls = parseSavedSpotifyPlaylistUrls(prefs);
+      const modal = new ModalBuilder()
+        .setCustomId(`music_md:spotifypl_replace:${actorId}`)
+        .setTitle("Modifier tes playlists Spotify");
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("music_spotify_pl_bulk")
+            .setLabel("Une URL playlist par ligne (max 10)")
+            .setStyle(TextInputStyle.Paragraph)
+            .setValue(urls.join("\n").slice(0, 3900))
+            .setMinLength(0)
+            .setMaxLength(4000)
+            .setRequired(false)
+        )
+      );
+      await interaction.showModal(modal);
+      return true;
+    }
+
+    if (p.action === "splclr") {
+      await loadPrefs(client.prisma, interaction.guildId, actorId);
+      await savePrefs(client.prisma, interaction.guildId, actorId, { musicSpotifyUrl: "" });
+      await interaction.update({
+        content:
+          "Toutes les playlists Spotify enregistrees ont ete effacees. Sur le panneau musique, clique **Playlist Spotify** pour en ajouter une nouvelle.",
+        components: []
+      });
+      return true;
+    }
+
+    if (p.action === "splplay") {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const prefs = await loadPrefs(client.prisma, interaction.guildId, actorId);
+      const urls = parseSavedSpotifyPlaylistUrls(prefs);
+      if (!urls.length) {
+        await interaction.editReply({
+          content: "Aucune playlist enregistree. Utilise **Playlist Spotify** sur le panneau musique."
+        });
+        return true;
+      }
+      const v = musicService.getVoiceChannelForMember(interaction.member);
+      if (v.error) {
+        await interaction.editReply({ content: v.error });
+        return true;
+      }
+      const j = await musicService.joinChannel(interaction.guild, v.channel, {
+        member: interaction.member,
+        client
+      });
+      if (j.error) {
+        await interaction.editReply({ content: j.error });
+        return true;
+      }
+      let totalAdded = 0;
+      let firstTitle = "";
+      const errs = [];
+      for (const url of urls) {
+        const enq = await musicService.enqueueQuery(interaction.guild, url, interaction.user.id, client.prisma);
+        if (enq.error) errs.push(enq.error);
+        else {
+          totalAdded += Number(enq.added) || 0;
+          if (!firstTitle && enq.firstTitle) firstTitle = enq.firstTitle;
+        }
+      }
+      if (!totalAdded && errs.length) {
+        await interaction.editReply({
+          content: `Impossible de charger les playlists : ${errs[0]}`.slice(0, 2000)
+        });
+        return true;
+      }
+      let msg = `**${totalAdded}** morceau(x) ajoute(s) depuis **${urls.length}** playlist(s). Premier : **${firstTitle || "?"}**.`;
+      if (errs.length)
+        msg += `\n_(Certaines lignes ont echoue : ${errs
+          .slice(0, 2)
+          .join("; ")
+          .slice(0, 280)})_`;
+      await interaction.editReply({ content: msg.slice(0, 2000) });
+      return true;
+    }
+
     if (p.action === "saveurl") {
       const modal = new ModalBuilder()
         .setCustomId(`music_md:save:${actorId}`)
@@ -709,6 +877,96 @@ async function handleMusicPanelInteractions(client, interaction) {
       return true;
     }
 
+    if (parsed.kind === "spotifypl_set") {
+      const raw = interaction.fields.getTextInputValue("music_spotify_pl_url");
+      const url = String(raw || "").trim();
+      if (!isSpotifyPlaylistUrl(url)) {
+        await interaction.reply({
+          content:
+            "Ce n'est pas un lien de **playlist** Spotify. Il faut une URL du type `https://open.spotify.com/playlist/...` (playlist **publique**).",
+          flags: MessageFlags.Ephemeral
+        });
+        return true;
+      }
+      await loadPrefs(client.prisma, interaction.guildId, interaction.user.id);
+      await savePrefs(client.prisma, interaction.guildId, interaction.user.id, { musicSpotifyUrl: url });
+      await interaction.reply({
+        content:
+          "Playlist enregistree. Clique encore sur **Playlist Spotify** sur le panneau pour **lancer** dans le vocal ou **en ajouter** d'autres.",
+        flags: MessageFlags.Ephemeral
+      });
+      return true;
+    }
+
+    if (parsed.kind === "spotifypl_append") {
+      const raw = interaction.fields.getTextInputValue("music_spotify_pl_append");
+      const url = String(raw || "").trim();
+      if (!isSpotifyPlaylistUrl(url)) {
+        await interaction.reply({
+          content:
+            "Lien invalide : colle une URL **playlist** `https://open.spotify.com/playlist/...` (publique).",
+          flags: MessageFlags.Ephemeral
+        });
+        return true;
+      }
+      const prefs = await loadPrefs(client.prisma, interaction.guildId, interaction.user.id);
+      const cur = parseSavedSpotifyPlaylistUrls(prefs);
+      if (cur.includes(url)) {
+        await interaction.reply({
+          content: "Ce lien est deja enregistre.",
+          flags: MessageFlags.Ephemeral
+        });
+        return true;
+      }
+      if (cur.length >= MAX_SAVED_SPOTIFY_PLAYLISTS) {
+        await interaction.reply({
+          content: `Tu as deja **${MAX_SAVED_SPOTIFY_PLAYLISTS}** playlists (max). Utilise **Modifier les liens** pour en retirer.`,
+          flags: MessageFlags.Ephemeral
+        });
+        return true;
+      }
+      const next = [...cur, url].join("\n");
+      await savePrefs(client.prisma, interaction.guildId, interaction.user.id, { musicSpotifyUrl: next });
+      await interaction.reply({
+        content: `Playlist ajoutee — **${cur.length + 1}** au total. Rouvre **Playlist Spotify** puis **Lancer dans le vocal** si besoin.`,
+        flags: MessageFlags.Ephemeral
+      });
+      return true;
+    }
+
+    if (parsed.kind === "spotifypl_replace") {
+      const raw = interaction.fields.getTextInputValue("music_spotify_pl_bulk");
+      const lines = String(raw || "")
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+      if (!lines.length) {
+        await loadPrefs(client.prisma, interaction.guildId, interaction.user.id);
+        await savePrefs(client.prisma, interaction.guildId, interaction.user.id, { musicSpotifyUrl: "" });
+        await interaction.reply({
+          content: "Liste vide : toutes les playlists enregistrees ont ete effacees.",
+          flags: MessageFlags.Ephemeral
+        });
+        return true;
+      }
+      const valid = normalizeSavedSpotifyPlaylistLines(lines.filter((l) => isSpotifyPlaylistUrl(l)));
+      if (!valid.length) {
+        await interaction.reply({
+          content:
+            "Aucune URL valide : chaque ligne doit etre un lien **playlist** `https://open.spotify.com/playlist/...`.",
+          flags: MessageFlags.Ephemeral
+        });
+        return true;
+      }
+      const dropped = lines.length - valid.length;
+      await loadPrefs(client.prisma, interaction.guildId, interaction.user.id);
+      await savePrefs(client.prisma, interaction.guildId, interaction.user.id, { musicSpotifyUrl: valid.join("\n") });
+      let msg = `**${valid.length}** playlist(s) enregistree(s).`;
+      if (dropped > 0) msg += ` (${dropped} ligne(s) ignoree(s) — pas une URL playlist.)`;
+      await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+      return true;
+    }
+
     if (parsed.kind === "pladd") {
       const raw = interaction.fields.getTextInputValue("music_pl_q");
       const q = String(raw || "").trim();
@@ -755,7 +1013,7 @@ async function handleMusicPanelInteractions(client, interaction) {
       await savePrefs(client.prisma, interaction.guildId, interaction.user.id, { musicSpotifyUrl: lien });
       await interaction.reply({
         content: lien
-          ? "Lien enregistre pour **Ma playlist** (panneau vocal prive). Pense a **Rafraichir** ce panneau si besoin."
+          ? "Lien enregistre (ancien bouton). Prefere **Playlist Spotify** sur le panneau pour plusieurs playlists."
           : "Lien efface.",
         flags: MessageFlags.Ephemeral
       });

@@ -18,11 +18,10 @@ function buildMusicPanelPayload(userId) {
         "**Rechercher** : formulaire — resultats **YouTube** + **Spotify** (si configure).",
         "**Coller un lien** : URL YouTube ou Spotify (playlist / album / morceau).",
         "**Historique** : tes morceaux deja joues sur ce serveur.",
-        "**Playlist** : ta liste perso ; ajout manuel, lecture, retrait.",
+        "**Playlist** : ta liste perso (YouTube) ; ajout manuel, lecture, retrait.",
+        "**Playlist Spotify** : enregistre une ou plusieurs **playlists publiques** (lien open.spotify.com/playlist/...), puis lance tout dans le vocal.",
         "**File** : file d’attente du serveur.",
         "**Pause / Reprendre / Depuis le debut** ; **Son - / Son +** : volume par pas de 10 %.",
-        "",
-        "**Enregistrer lien Spotify** : pour le bouton **Ma playlist** du panneau vocal prive.",
         "",
         "Tu dois etre dans un **salon vocal** pour lancer la lecture. Les boutons ne reagissent que pour **toi**."
       ].join("\n")
@@ -75,9 +74,9 @@ function buildMusicPanelPayload(userId) {
 
   const row4 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(`music_pb:saveurl:${id}`)
-      .setLabel("Enregistrer lien Spotify")
-      .setStyle(ButtonStyle.Secondary),
+      .setCustomId(`music_pb:spotifypl:${id}`)
+      .setLabel("Playlist Spotify")
+      .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId(`music_pb:refresh:${id}`)
       .setLabel("Rafraichir le panneau")

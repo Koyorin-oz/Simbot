@@ -74,7 +74,7 @@ function buildPrivateRoomPanel(hasChannel, prefsSummary, ownerId, opts = {}) {
   if (opts.musicEnabled) {
     const musicHint =
       "**Musique** : ouvre le meme panneau que `/music` — recherche, liens, playlist, file, volume, etc. " +
-      "Tu peux enregistrer ton lien Spotify **Ma playlist** depuis ce panneau.";
+      "Enregistre tes **playlists Spotify** via le bouton **Playlist Spotify** sur ce panneau.";
     container
       .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
       .addTextDisplayComponents(new TextDisplayBuilder().setContent(musicHint));

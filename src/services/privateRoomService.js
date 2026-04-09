@@ -283,6 +283,42 @@ async function createTempVoice(client, prisma, member, { name, limit, mode, blac
   return { ok: true, channel };
 }
 
+/** Max de liens playlist enregistres par membre / serveur. */
+const MAX_SAVED_SPOTIFY_PLAYLISTS = 10;
+
+function isSpotifyPlaylistUrl(s) {
+  return /open\.spotify\.com\/(?:intl-[a-z]{2}\/)?playlist\//i.test(String(s || "").trim());
+}
+
+/** @param {{ musicSpotifyUrl?: string } | string} prefsOrRaw */
+function parseSavedSpotifyPlaylistUrls(prefsOrRaw) {
+  const raw =
+    typeof prefsOrRaw === "string"
+      ? prefsOrRaw
+      : String(prefsOrRaw?.musicSpotifyUrl ?? "").trim();
+  if (!raw) return [];
+  return raw
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(0, MAX_SAVED_SPOTIFY_PLAYLISTS);
+}
+
+/** Dedup + filtre vide, respecte le plafond. */
+function normalizeSavedSpotifyPlaylistLines(lines) {
+  const seen = new Set();
+  const out = [];
+  for (const line of lines) {
+    const t = String(line || "").trim();
+    if (!t) continue;
+    if (seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+    if (out.length >= MAX_SAVED_SPOTIFY_PLAYLISTS) break;
+  }
+  return out;
+}
+
 async function deleteIfOwnerEmpty(client, channel) {
   if (!channel?.isVoiceBased()) return;
   if (!client.privateRoomSessions) return;
@@ -308,5 +344,9 @@ module.exports = {
   deleteIfOwnerEmpty,
   defaultPrivateRoomChannelName,
   resolvePrivateRoomDisplayName,
-  resolvePrivateRoomNameFromPrefs
+  resolvePrivateRoomNameFromPrefs,
+  MAX_SAVED_SPOTIFY_PLAYLISTS,
+  isSpotifyPlaylistUrl,
+  parseSavedSpotifyPlaylistUrls,
+  normalizeSavedSpotifyPlaylistLines
 };
