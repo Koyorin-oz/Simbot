@@ -498,6 +498,24 @@ async function getSpotifyToken() {
   return spotifyToken;
 }
 
+function formatSpotifyApiError(status, bodyText) {
+  const t = String(bodyText || "");
+  if (
+    status === 403 &&
+    /premium/i.test(t) &&
+    (/owner of the app/i.test(t) || /developer/i.test(t) || /subscription/i.test(t))
+  ) {
+    return (
+      "Spotify bloque l’API : le **compte Spotify** qui a **créé l’app** sur https://developer.spotify.com/dashboard doit avoir **Spotify Premium** actif. " +
+      "Solutions : activer Premium sur ce compte, ou recréer l’app (nouveau Client ID / Secret) avec un compte **déjà Premium**, puis mettre à jour le `.env` du bot."
+    );
+  }
+  if (status === 403) {
+    return `Spotify : accès refusé (403). ${t.slice(0, 200)}`;
+  }
+  return `Spotify : ${status} ${t.slice(0, 120)}`;
+}
+
 async function spotifyFetch(path) {
   const token = await getSpotifyToken();
   if (!token) return { error: "Spotify API non configuree (SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET dans .env)." };
@@ -506,7 +524,7 @@ async function spotifyFetch(path) {
   });
   if (!res.ok) {
     const t = await res.text().catch(() => "");
-    return { error: `Spotify: ${res.status} ${t.slice(0, 120)}` };
+    return { error: formatSpotifyApiError(res.status, t) };
   }
   return { data: await res.json() };
 }
@@ -519,7 +537,7 @@ async function spotifyFetchAbsolute(fullUrl) {
   });
   if (!res.ok) {
     const t = await res.text().catch(() => "");
-    return { error: `Spotify: ${res.status} ${t.slice(0, 120)}` };
+    return { error: formatSpotifyApiError(res.status, t) };
   }
   return { data: await res.json() };
 }
