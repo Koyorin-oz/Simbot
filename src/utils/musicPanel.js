@@ -1,40 +1,33 @@
-const {
-  ContainerBuilder,
-  TextDisplayBuilder,
-  SeparatorBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  MessageFlags
-} = require("discord.js");
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 
 /** Accent orange fonce (panneau musique). */
 const MUSIC_ACCENT = 0xcc5500;
 
-const MUSIC_V2 = {
-  flags: MessageFlags.IsComponentsV2 | MessageFlags.SuppressEmbeds,
-  embeds: []
-};
-
 /**
- * Grand panneau musique — boutons suffixes par userId (seul l’auteur peut cliquer).
+ * Grand panneau musique — boutons suffixes par userId (seul l’auteur peut cliquer, sauf bypass deja gere ailleurs).
+ * Format classique (embed + boutons), pas Components V2.
  * @param {string} userId
  */
 function buildMusicPanelPayload(userId) {
   const id = String(userId);
-  const lines = [
-    "## Panneau musique",
-    "",
-    "**Rechercher** : ouvre un formulaire — le bot propose les **meilleurs resultats YouTube + Spotify** (si configure).",
-    "**Coller un lien** : URL YouTube ou Spotify (playlist / album / morceau).",
-    "**Historique** : tes morceaux deja joues sur ce serveur — choisis-en un pour le remettre en file.",
-    "**Playlist** : ta liste perso sur ce serveur ; les morceaux que **tu** lances s’y enregistrent tout seuls (sans doublon d’URL). Ajout manuel, lecture / file / retrait.",
-    "**File** : file d’attente actuelle du serveur (pas ton historique).",
-    "**Pause / Reprendre / Depuis le debut** : controle la lecture ; **Son - / Son +** : volume par pas de 10 %.",
-    "Tu peux aussi utiliser `/music pause`, `/music reprendre`, `/music recommencer`, `/music volume`.",
-    "",
-    "Tu dois etre dans un **salon vocal** pour lancer la lecture. Les boutons ne reagissent que pour **toi**."
-  ].join("\n");
+  const embed = new EmbedBuilder()
+    .setColor(MUSIC_ACCENT)
+    .setTitle("Panneau musique")
+    .setDescription(
+      [
+        "**Rechercher** : formulaire — resultats **YouTube** + **Spotify** (si configure).",
+        "**Coller un lien** : URL YouTube ou Spotify (playlist / album / morceau).",
+        "**Historique** : tes morceaux deja joues sur ce serveur.",
+        "**Playlist** : ta liste perso ; ajout manuel, lecture, retrait.",
+        "**File** : file d’attente du serveur.",
+        "**Pause / Reprendre / Depuis le debut** ; **Son - / Son +** : volume par pas de 10 %.",
+        "",
+        "**Enregistrer lien Spotify** : pour le bouton **Ma playlist** du panneau vocal prive.",
+        "",
+        "Tu dois etre dans un **salon vocal** pour lancer la lecture. Les boutons ne reagissent que pour **toi**."
+      ].join("\n")
+    )
+    .setTimestamp();
 
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -83,7 +76,7 @@ function buildMusicPanelPayload(userId) {
   const row4 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`music_pb:saveurl:${id}`)
-      .setLabel("Enregistrer lien Spotify (voc prive)")
+      .setLabel("Enregistrer lien Spotify")
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId(`music_pb:refresh:${id}`)
@@ -91,16 +84,7 @@ function buildMusicPanelPayload(userId) {
       .setStyle(ButtonStyle.Secondary)
   );
 
-  const container = new ContainerBuilder()
-    .setAccentColor(MUSIC_ACCENT)
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines))
-    .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-    .addActionRowComponents(row1)
-    .addActionRowComponents(row2)
-    .addActionRowComponents(row3)
-    .addActionRowComponents(row4);
-
-  return { components: [container], ...MUSIC_V2 };
+  return { embeds: [embed], components: [row1, row2, row3, row4] };
 }
 
-module.exports = { buildMusicPanelPayload, MUSIC_ACCENT, MUSIC_V2 };
+module.exports = { buildMusicPanelPayload, MUSIC_ACCENT };

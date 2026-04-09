@@ -98,13 +98,11 @@ async function buildPanelPayload(client, prisma, member, options = {}) {
     if (!has) s.voiceChannelId = null;
   }
   const pr = config.privateRoom;
-  const musicSpotifyUrl = String(prefs.musicSpotifyUrl || "").trim();
   return buildPrivateRoomPanel(has, prefsSummary(prefs), member.id, {
     pingUser: Boolean(options.pingUser),
     panelTextChannelId: pr?.panelTextChannelId || null,
     lobbyChannelId: pr?.lobbyChannelId || null,
-    musicEnabled: Boolean(config.music?.enabled),
-    musicSpotifyUrl
+    musicEnabled: Boolean(config.music?.enabled)
   });
 }
 

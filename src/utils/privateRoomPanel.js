@@ -17,8 +17,7 @@ const { V2_MSG, ACCENT_COLOR } = require("./componentsV2Panels");
  *   pingUser?: boolean,
  *   panelTextChannelId?: string | null,
  *   lobbyChannelId?: string | null,
- *   musicEnabled?: boolean,
- *   musicSpotifyUrl?: string
+ *   musicEnabled?: boolean
  * }} [opts] - si pingUser, mention au debut (obligatoire avec Components V2 : pas de `content` separe)
  */
 function buildPrivateRoomPanel(hasChannel, prefsSummary, ownerId, opts = {}) {
@@ -38,7 +37,7 @@ function buildPrivateRoomPanel(hasChannel, prefsSummary, ownerId, opts = {}) {
     "",
     prefsSummary || "",
     "",
-    "*Seul le membre mentionne peut utiliser les boutons de ce message.*"
+    "*Seul le membre mentionne peut utiliser les boutons ci-dessus. Le bouton **MUSIQUE** : aussi le **staff** (role musique / salon prive, voir config).*"
   ].join("\n");
 
   const row1 = new ActionRowBuilder().addComponents(
@@ -73,77 +72,17 @@ function buildPrivateRoomPanel(hasChannel, prefsSummary, ownerId, opts = {}) {
     .addActionRowComponents(row2);
 
   if (opts.musicEnabled) {
-    const savedOk = Boolean(String(opts.musicSpotifyUrl || "").trim());
     const musicHint =
-      "**Musique** : le bot rejoint ton vocal et lit via YouTube (lien ou recherche). " +
-      "Liens **Spotify publics** (morceau / album / playlist) si l’API est configuree sur le bot. " +
-      "Enregistre un lien avec `/music definir-lien` pour le bouton **Ma playlist**.";
+      "**Musique** : ouvre le meme panneau que `/music` — recherche, liens, playlist, file, volume, etc. " +
+      "Tu peux enregistrer ton lien Spotify **Ma playlist** depuis ce panneau.";
     container
       .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
       .addTextDisplayComponents(new TextDisplayBuilder().setContent(musicHint));
 
-    const rowMusic1 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`prv_music_join:${id}`)
-        .setLabel("Musique : rejoindre")
-        .setStyle(ButtonStyle.Primary)
-        .setDisabled(!hasChannel),
-      new ButtonBuilder()
-        .setCustomId(`prv_music_play:${id}`)
-        .setLabel("Musique : jouer")
-        .setStyle(ButtonStyle.Success)
-        .setDisabled(!hasChannel),
-      new ButtonBuilder()
-        .setCustomId(`prv_music_saved:${id}`)
-        .setLabel("Ma playlist")
-        .setStyle(ButtonStyle.Success)
-        .setDisabled(!hasChannel || !savedOk),
-      new ButtonBuilder()
-        .setCustomId(`prv_music_queue:${id}`)
-        .setLabel("File")
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(!hasChannel),
-      new ButtonBuilder()
-        .setCustomId(`prv_music_skip:${id}`)
-        .setLabel("Skip")
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(!hasChannel)
+    const rowMusic = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`prv_music_panel:${id}`).setLabel("MUSIQUE").setStyle(ButtonStyle.Primary)
     );
-    const rowMusic2 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`prv_music_leave:${id}`)
-        .setLabel("Musique : quitter le vocal")
-        .setStyle(ButtonStyle.Danger)
-        .setDisabled(!hasChannel)
-    );
-    const rowMusic3 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`prv_music_pause:${id}`)
-        .setLabel("Pause")
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(!hasChannel),
-      new ButtonBuilder()
-        .setCustomId(`prv_music_resume:${id}`)
-        .setLabel("Reprendre")
-        .setStyle(ButtonStyle.Success)
-        .setDisabled(!hasChannel),
-      new ButtonBuilder()
-        .setCustomId(`prv_music_restart:${id}`)
-        .setLabel("Depuis le debut")
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(!hasChannel),
-      new ButtonBuilder()
-        .setCustomId(`prv_music_voldown:${id}`)
-        .setLabel("Son -")
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(!hasChannel),
-      new ButtonBuilder()
-        .setCustomId(`prv_music_volup:${id}`)
-        .setLabel("Son +")
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(!hasChannel)
-    );
-    container.addActionRowComponents(rowMusic1).addActionRowComponents(rowMusic2).addActionRowComponents(rowMusic3);
+    container.addActionRowComponents(rowMusic);
   }
 
   return { components: [container], ...V2_MSG };
