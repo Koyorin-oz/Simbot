@@ -335,9 +335,12 @@ module.exports = {
     guildId: String(process.env.YOUTUBE_NOTIFY_GUILD_ID || MAIN_GUILD_ID).trim(),
     channelId: String(process.env.YOUTUBE_NOTIFY_CHANNEL_ID || "735681234847531078").trim(),
     pollIntervalMinutes: Math.max(2, Number(process.env.YOUTUBE_NOTIFY_POLL_MINUTES) || 5),
-    /** Chaque entree : `channelId` OU `handle` (@ sans le @). displayName = gras dans le message. */
+    /**
+     * Uniquement ces deux chaines (RSS) — toute autre entree est ignoree par le service (liste blanche).
+     * https://www.youtube.com/@Carminator.officiel et https://www.youtube.com/@Carmineoff
+     */
     sources: [
-      { channelId: "UCFwHronrvO5k4Iyp4jm4sxw", displayName: "Carminator" },
+      { handle: "Carminator.officiel", displayName: "Carminator" },
       { handle: "Carmineoff", displayName: "Carmineoff" }
     ]
   }

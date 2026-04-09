@@ -14,6 +14,9 @@ const YT_UA =
 const RSS_BY_CHANNEL = (channelId) =>
   `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
 
+/** Seules ces chaines (@handle sans @, minuscules) declenchent des notifs — pas de channelId arbitraire. */
+const ALLOWED_NOTIFY_HANDLES = new Set(["carmineoff", "carminator.officiel"]);
+
 function decodeXmlEntities(s) {
   return String(s || "")
     .replace(/&amp;/g, "&")
@@ -132,20 +135,36 @@ async function fetchLatestVideoForSourceKey(sourceKey) {
   return entries.length ? entries[0] : null;
 }
 
-/** Resolve toutes les sources en { sourceKey, displayName }. */
+/** Resolve toutes les sources en { sourceKey, displayName } — uniquement handles autorises. */
 async function resolveSources(sources) {
   const out = [];
   for (const s of sources) {
-    let id = s.channelId ? String(s.channelId).trim() : "";
-    if (!id && s.handle) {
-      id = await resolveChannelIdFromHandle(s.handle).catch(() => null);
-      if (!id) {
-        console.error(`[YOUTUBE_NOTIFY] Impossible de resoudre le handle @${s.handle}`);
-        continue;
-      }
+    const handleRaw = s.handle ? String(s.handle).replace(/^@/, "").trim() : "";
+    const handleNorm = handleRaw.toLowerCase();
+
+    if (s.channelId && !handleRaw) {
+      console.warn(
+        "[YOUTUBE_NOTIFY] Source ignoree : `channelId` seul n'est pas autorise. Utilise @Carmineoff ou @Carminator.officiel (handle dans la config)."
+      );
+      continue;
     }
-    if (!id || !/^UC[\w-]{22}$/.test(id)) {
-      console.error(`[YOUTUBE_NOTIFY] channelId invalide pour ${JSON.stringify(s)}`);
+
+    if (!handleNorm || !ALLOWED_NOTIFY_HANDLES.has(handleNorm)) {
+      if (handleRaw) {
+        console.warn(
+          `[YOUTUBE_NOTIFY] Handle @${handleRaw} ignore — seules @Carmineoff et @Carminator.officiel sont autorisees.`
+        );
+      }
+      continue;
+    }
+
+    const id = await resolveChannelIdFromHandle(handleRaw).catch(() => null);
+    if (!id) {
+      console.error(`[YOUTUBE_NOTIFY] Impossible de resoudre le handle @${handleRaw}`);
+      continue;
+    }
+    if (!/^UC[\w-]{22}$/.test(id)) {
+      console.error(`[YOUTUBE_NOTIFY] channelId invalide apres resolution @${handleRaw}`);
       continue;
     }
     out.push({
