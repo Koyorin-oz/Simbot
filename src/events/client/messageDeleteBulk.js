@@ -1,4 +1,4 @@
-const { recordDeletedMessage } = require("../../services/snipeEditCacheService");
+const { recordDeletedMessage, forgetCachedMessage } = require("../../services/snipeEditCacheService");
 const { logBulkMessagesDeleted } = require("../../services/modLogService");
 
 module.exports = {
@@ -12,5 +12,6 @@ module.exports = {
         console.warn("[MODLOG] messageDeleteBulk", e?.message || e)
       );
     }
+    for (const m of arr) forgetCachedMessage(m.id);
   }
 };

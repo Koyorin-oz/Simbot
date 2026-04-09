@@ -1,4 +1,4 @@
-const { recordDeletedMessage } = require("../../services/snipeEditCacheService");
+const { recordDeletedMessage, forgetCachedMessage } = require("../../services/snipeEditCacheService");
 const { logMessageDeleted } = require("../../services/modLogService");
 
 module.exports = {
@@ -6,5 +6,6 @@ module.exports = {
   async execute(_client, message) {
     recordDeletedMessage(message);
     await logMessageDeleted(message).catch((e) => console.warn("[MODLOG] messageDelete", e?.message || e));
+    forgetCachedMessage(message.id);
   }
 };

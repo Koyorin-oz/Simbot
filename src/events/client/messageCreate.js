@@ -26,6 +26,7 @@ const {
 } = require("../../services/autoModService");
 const { shouldBlockLinksForMessage } = require("../../services/linkFilterService");
 const { sendAutoModDeletionNotice } = require("../../utils/autoModDeletionNotice");
+const { rememberMessage } = require("../../services/snipeEditCacheService");
 
 const AUTO_REPLY_COOLDOWN_MS = 15_000;
 const GEMINI_REPLY_MAX = 2000;
@@ -42,6 +43,7 @@ module.exports = {
   name: "messageCreate",
   async execute(client, message) {
     if (!message.guild) return;
+    if (!message.author.bot) rememberMessage(message);
     if (!message.author.bot) {
       const handled = await handlePrefixSnipeEdit(message);
       if (handled) return;

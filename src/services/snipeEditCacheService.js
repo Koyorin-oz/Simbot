@@ -1,6 +1,12 @@
 /** Nombre max de messages supprimés mémorisés par salon (et max pour !snipe N). */
 const MAX_SNIPE = 10;
 
+/** Dernier contenu vu par le bot par messageId (Discord ne renvoie pas le texte à la suppression si non en cache). */
+const MAX_MESSAGE_CONTENT_CACHE = 12_000;
+
+/** @type {Map<string, { content: string; att: string }>} */
+const messageContentCache = new Map();
+
 /** @type {Map<string, SnipeEntry[]>} */
 const deletedByChannel = new Map();
 
@@ -38,16 +44,43 @@ function summarizeAttachments(attachments) {
 }
 
 /**
+ * Enregistre le dernier contenu connu (messageCreate / messageUpdate), pour les logs à la suppression.
+ * @param {import("discord.js").Message} message
+ */
+function rememberMessage(message) {
+  if (!message?.guild || message.author?.bot) return;
+  const raw = typeof message.content === "string" ? message.content : "";
+  const att = summarizeAttachments(message.attachments);
+  messageContentCache.set(message.id, { content: raw, att });
+  while (messageContentCache.size > MAX_MESSAGE_CONTENT_CACHE) {
+    const first = messageContentCache.keys().next().value;
+    messageContentCache.delete(first);
+  }
+}
+
+/**
+ * @param {string} messageId
+ */
+function forgetCachedMessage(messageId) {
+  if (messageId) messageContentCache.delete(messageId);
+}
+
+/**
  * Texte + pieces jointes pour snipe / logs (messages partiels possibles).
  * @param {import("discord.js").Message | import("discord.js").PartialMessage} message
  */
 function buildMessageSnapshot(message) {
   const rawContent = typeof message.content === "string" ? message.content : "";
-  const att = summarizeAttachments(message.attachments);
-  let content = rawContent.trim();
+  let att = summarizeAttachments(message.attachments);
+  const cached = messageContentCache.get(message.id);
+  let text = rawContent.trim();
+  if (!text && cached?.content != null) text = String(cached.content).trim();
+  if (!att && cached?.att) att = cached.att;
+
+  let content = text;
   if (!content) {
     if (att) content = att;
-    else content = "(Contenu indisponible — message non en cache du bot.)";
+    else content = "(Contenu indisponible — le bot n'avait pas vu ce message.)";
   } else if (att) {
     content = `${content}\n${att}`;
   }
@@ -138,6 +171,8 @@ function getLastEdit(channelId) {
 module.exports = {
   MAX_SNIPE,
   buildMessageSnapshot,
+  rememberMessage,
+  forgetCachedMessage,
   recordDeletedMessage,
   recordEditedMessage,
   getSnipes,
