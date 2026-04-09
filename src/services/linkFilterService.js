@@ -4,6 +4,7 @@
  * - YouTube, TikTok, Instagram : uniquement dans `linkPolicy.mediaChannelId` (fils inclus).
  * - Invitations serveur Discord : bloquées sauf rôles bypass.
  * - Autres URLs : bloquées.
+ * - Salons listés dans `linkPolicy.linkUnrestrictedChannelIds` : aucune règle de lien (fils inclus).
  */
 
 const { normalizeForMatch } = require("./autoModService");
@@ -117,12 +118,33 @@ function isInMediaLinkChannel(channel, mediaChannelId) {
 }
 
 /**
+ * @param {import("discord.js").Channel} channel
+ * @param {string[]} channelIds
+ */
+function isInLinkUnrestrictedChannel(channel, channelIds) {
+  if (!channel || !channelIds?.length) return false;
+  for (const id of channelIds) {
+    const cid = String(id || "").trim();
+    if (!cid) continue;
+    if (channel.id === cid) return true;
+    if (typeof channel.isThread === "function" && channel.isThread() && channel.parentId === cid) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * @param {import("discord.js").Message} message
  * @param {import("discord.js").GuildMember | null} member
  * @param {{ linkAllowlistTerms: string[] }} payload
- * @param {{ bypassRoleIds: string[], mediaChannelId: string }} linkPolicy
+ * @param {{ bypassRoleIds: string[], mediaChannelId: string, linkUnrestrictedChannelIds?: string[] }} linkPolicy
  */
 function shouldBlockLinksForMessage(message, member, payload, linkPolicy) {
+  if (isInLinkUnrestrictedChannel(message.channel, linkPolicy?.linkUnrestrictedChannelIds)) {
+    return false;
+  }
+
   const bypassRoleIds = linkPolicy?.bypassRoleIds || [];
   if (hasAnyLinkBypassRole(member, bypassRoleIds)) return false;
 
