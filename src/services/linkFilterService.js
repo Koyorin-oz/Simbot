@@ -1,6 +1,7 @@
 /**
  * Liens : règles serveur codées + liste blanche optionnelle (catégorie « LIEN autorise »).
  * - Tenor, cadeaux Discord : partout (tout le monde).
+ * - Liens GIF (fichier .gif, Giphy) : partout ; invitations Discord restent bloquées.
  * - YouTube, TikTok, Instagram : uniquement dans `linkPolicy.mediaChannelId` (fils inclus).
  * - Invitations serveur Discord : bloquées sauf rôles bypass.
  * - Autres URLs : bloquées.
@@ -84,6 +85,28 @@ function isMediaChannelOnlyLink(norm) {
   return isYoutube(norm) || isTiktok(norm) || isInstagram(norm);
 }
 
+function isGiphy(norm) {
+  return norm.includes("giphy.com");
+}
+
+/**
+ * URL dont le chemin se termine par .gif (hors query/fragment), ponctuation finale tolérée.
+ * @param {string} raw
+ */
+function snippetPathEndsWithGif(raw) {
+  const base = String(raw || "")
+    .trim()
+    .split("?")[0]
+    .split("#")[0];
+  const cleaned = base.replace(/[.,;:!?)\]]+$/g, "");
+  return /\.gif$/i.test(cleaned);
+}
+
+/** GIF « classiques » : Giphy ou lien direct .gif (Tenor / liste blanche déjà gérés ailleurs). */
+function isAllowedGifLinkEverywhere(raw, norm) {
+  return isGiphy(norm) || snippetPathEndsWithGif(raw);
+}
+
 /**
  * @param {string} normalizedSnippet
  * @param {string[]} allowlistTerms
@@ -163,6 +186,10 @@ function shouldBlockLinksForMessage(message, member, payload, linkPolicy) {
     }
 
     if (isAllowedLinkEverywhere(norm, extras)) {
+      continue;
+    }
+
+    if (isAllowedGifLinkEverywhere(raw, norm)) {
       continue;
     }
 

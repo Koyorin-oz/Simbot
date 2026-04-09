@@ -310,7 +310,7 @@ module.exports = {
    * Liens : YouTube / TikTok / Instagram uniquement dans `mediaChannelId` ; Tenor + cadeaux Discord partout.
    * Invitations serveur (`discord.gg`, `/invite/`) bloquées sauf rôles bypass.
    * `LINK_BYPASS_ROLE_IDS` = liste séparée par virgules (sinon deux rôles par défaut + `LINK_BYPASS_ROLE_ID` seul si défini).
-   * `LINK_UNRESTRICTED_CHANNEL_IDS` = salons sans filtre de liens (fils inclus) ; défaut : 792688903856586762.
+   * `LINK_UNRESTRICTED_CHANNEL_IDS` = salons sans filtre de liens (fils inclus) ; défaut : deux salons (média / partage).
    */
   linkPolicy: (() => {
     const fromMulti = String(process.env.LINK_BYPASS_ROLE_IDS || "")
@@ -325,7 +325,7 @@ module.exports = {
       .split(/[,\s]+/)
       .map((s) => s.trim())
       .filter(Boolean);
-    const defaultUnrestricted = ["792688903856586762"];
+    const defaultUnrestricted = ["792688903856586762", "1454870112141050099"];
     const linkUnrestrictedChannelIds =
       unrestrictedFromEnv.length > 0 ? unrestrictedFromEnv : defaultUnrestricted;
     return {
