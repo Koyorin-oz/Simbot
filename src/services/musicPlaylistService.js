@@ -2,6 +2,36 @@
 
 /** Capacite max par membre / serveur. */
 const MAX_ITEMS = 60;
+
+/** Titre en base pour les morceaux venus de Spotify (audio = YouTube derriere). */
+const SPOTIFY_STORED_TITLE_PREFIX = "🟢 Spotify · ";
+
+/**
+ * @param {{ title: string, url: string }} it
+ * @returns {{ title: string, url: string, spotifyCosplay: boolean }}
+ */
+function playlistItemToQueueTrack(it) {
+  const t = String(it?.title || "");
+  if (t.startsWith(SPOTIFY_STORED_TITLE_PREFIX)) {
+    return {
+      title: t.slice(SPOTIFY_STORED_TITLE_PREFIX.length).trim() || t,
+      url: it.url,
+      spotifyCosplay: true
+    };
+  }
+  return { title: t, url: it.url, spotifyCosplay: false };
+}
+
+function cleanTitleForSpotifyStorage(title) {
+  return String(title || "")
+    .replace(new RegExp(`^${SPOTIFY_STORED_TITLE_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`), "")
+    .trim();
+}
+
+function storedTitleForSpotifyPlaylist(cleanTitle) {
+  const c = cleanTitleForSpotifyStorage(cleanTitle);
+  return `${SPOTIFY_STORED_TITLE_PREFIX}${c}`.slice(0, 400);
+}
 /** Options du menu deroulant (limite Discord). */
 const SELECT_CAP = 25;
 
@@ -42,8 +72,9 @@ async function getOwnedPlaylistItem(prisma, guildId, userId, itemId) {
  * @param {string} userId
  * @param {string} title
  * @param {string} url
+ * @param {{ spotifyCosplay?: boolean }} [opts]
  */
-async function autoAppendPlayedTrack(prisma, guildId, userId, title, url) {
+async function autoAppendPlayedTrack(prisma, guildId, userId, title, url, opts = {}) {
   if (!prisma?.musicPlaylistItem?.create) return;
   const gid = String(guildId);
   const uid = String(userId);
@@ -61,11 +92,15 @@ async function autoAppendPlayedTrack(prisma, guildId, userId, title, url) {
     _max: { sortOrder: true }
   });
   const sortOrder = (agg._max.sortOrder ?? 0) + 1;
+  const spotify = Boolean(opts.spotifyCosplay);
+  const storeTitle = spotify
+    ? storedTitleForSpotifyPlaylist(title)
+    : cleanTitleForSpotifyStorage(title).slice(0, 400);
   await prisma.musicPlaylistItem.create({
     data: {
       guildId: gid,
       userId: uid,
-      title: String(title).slice(0, 400),
+      title: storeTitle,
       url: u,
       sortOrder
     }
@@ -177,6 +212,8 @@ async function buildPlaylistPanelPayload(prisma, guildId, userId, selectedItemId
     content = [
       "## Ta playlist (ce serveur)",
       "",
+      "Les morceaux lances depuis **Spotify** (lien / recherche) sont aussi ajoutes ici avec **🟢 Spotify ·** — meme playlist, audio YouTube.",
+      "",
       "**0 titre** pour l’instant.",
       "",
       "Dès que **tu** lances un morceau avec le bot (recherche, lien, historique, « Tout jouer », etc.), il est **ajouté ici automatiquement** — **sans doublon** si l’URL est déjà dans la liste.",
@@ -197,6 +234,7 @@ async function buildPlaylistPanelPayload(prisma, guildId, userId, selectedItemId
         : "";
     content =
       `## Ta playlist — **${items.length}** titre(s) (serveur)\n` +
+      `_**🟢 Spotify ·** = morceau ajouté depuis Spotify (le bot lit quand même via **YouTube**)._\n` +
       `_Piste sélectionnée (flèche **→**) : actions **Jouer** / **File** / **Retirer**._\n\n` +
       `${body.slice(0, 3600)}${tail}\n\n` +
       `_Visible uniquement par toi._`;
@@ -271,6 +309,8 @@ async function buildPlaylistPanelPayload(prisma, guildId, userId, selectedItemId
 module.exports = {
   MAX_ITEMS,
   SELECT_CAP,
+  SPOTIFY_STORED_TITLE_PREFIX,
+  playlistItemToQueueTrack,
   listUserPlaylist,
   getOwnedPlaylistItem,
   autoAppendPlayedTrack,

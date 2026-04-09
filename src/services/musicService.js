@@ -103,8 +103,25 @@ function loadDeps() {
   }
 }
 
-/** @type {Map<string, { queue: Array<{ title: string, url: string, requesterId: string }>, volume: number, textChannelId: string | null, player: *, connection: *, lavalinkPlayer: import('shoukaku').Player | null, ytDlpProcess: import('child_process').ChildProcess | null, nowPlaying: { title: string, url: string, requesterId: string } | null }>} */
+/** @type {Map<string, { queue: Array<{ title: string, url: string, requesterId: string, spotifyCosplay?: boolean }>, volume: number, textChannelId: string | null, player: *, connection: *, lavalinkPlayer: import('shoukaku').Player | null, ytDlpProcess: import('child_process').ChildProcess | null, nowPlaying: { title: string, url: string, requesterId: string, spotifyCosplay?: boolean } | null }>} */
 const guildStates = new Map();
+
+/** Morceau issu de Spotify (API/lien/recherche) : affichage « Spotify », audio YouTube. */
+function trackUsesSpotifyCosplay(t) {
+  if (typeof t?.spotifyCosplay === "boolean") return t.spotifyCosplay;
+  const src = String(t?.source || "");
+  return (
+    /^spotify_/i.test(src) ||
+    src === "spotify_resolve" ||
+    src === "spotify_pick" ||
+    src === "spotify_via_youtube"
+  );
+}
+
+function formatQueueTrackLine(t) {
+  if (t?.spotifyCosplay) return `🟢 Spotify (audio YouTube) — ${t.title}`;
+  return t.title;
+}
 
 let ytDlpMissingLogged = false;
 
@@ -362,7 +379,8 @@ async function restartCurrentTrackGuild(guildId) {
   st.queue.unshift({
     title: st.nowPlaying.title,
     url: st.nowPlaying.url,
-    requesterId: st.nowPlaying.requesterId || "0"
+    requesterId: st.nowPlaying.requesterId || "0",
+    spotifyCosplay: Boolean(st.nowPlaying.spotifyCosplay)
   });
   st.player.stop(true);
   return { ok: true };
@@ -828,7 +846,8 @@ async function playNextLavalink(guild, failDepth = 0) {
     st.nowPlaying = {
       title: next.title,
       url: next.url,
-      requesterId: next.requesterId || "0"
+      requesterId: next.requesterId || "0",
+      spotifyCosplay: Boolean(next.spotifyCosplay)
     };
     try {
       const musicPlaylist = require("./musicPlaylistService");
@@ -837,7 +856,8 @@ async function playNextLavalink(guild, failDepth = 0) {
         guild.id,
         next.requesterId || "0",
         next.title,
-        next.url
+        next.url,
+        { spotifyCosplay: Boolean(next.spotifyCosplay) }
       );
     } catch {
       /* ignore */
@@ -870,7 +890,8 @@ async function playNext(guild, failDepth = 0) {
     st.nowPlaying = {
       title: next.title,
       url: next.url,
-      requesterId: next.requesterId || "0"
+      requesterId: next.requesterId || "0",
+      spotifyCosplay: Boolean(next.spotifyCosplay)
     };
     try {
       const musicPlaylist = require("./musicPlaylistService");
@@ -879,7 +900,8 @@ async function playNext(guild, failDepth = 0) {
         guild.id,
         next.requesterId || "0",
         next.title,
-        next.url
+        next.url,
+        { spotifyCosplay: Boolean(next.spotifyCosplay) }
       );
     } catch {
       /* ignore */
@@ -1263,16 +1285,21 @@ function stopGuild(guildId) {
 
 function formatQueue(guildId, limit = 10) {
   const st = getState(guildId);
-  const lines = st.queue.slice(0, limit).map((t, i) => `${i + 1}. ${t.title}`);
+  const slice = st.queue.slice(0, limit);
+  const anySpotify = slice.some((t) => t.spotifyCosplay) || Boolean(st.nowPlaying?.spotifyCosplay);
+  const lines = slice.map((t, i) => `${i + 1}. ${formatQueueTrackLine(t)}`);
   const extra = st.queue.length > limit ? `\n... et ${st.queue.length - limit} autre(s).` : "";
   if (!lines.length) return "File d'attente vide.";
-  return lines.join("\n") + extra;
+  const hint = anySpotify
+    ? "_🎭 Titre **🟢 Spotify** : ca vient de Spotify cote recherche, le bot lit quand meme via **YouTube**._\n\n"
+    : "";
+  return hint + lines.join("\n") + extra;
 }
 
 /**
  * Coupe (ou enchaine si rien ne joue) pour lancer tout de suite une piste depuis la playlist.
  * @param {import('discord.js').Guild} guild
- * @param {{ title: string, url: string }} item
+ * @param {{ title: string, url: string, spotifyCosplay?: boolean }} item
  * @param {string} requesterId
  */
 async function playPlaylistItemNow(guild, item, requesterId) {
@@ -1285,7 +1312,8 @@ async function playPlaylistItemNow(guild, item, requesterId) {
   st.queue.unshift({
     title: item.title,
     url: item.url,
-    requesterId: rid
+    requesterId: rid,
+    spotifyCosplay: Boolean(item.spotifyCosplay)
   });
 
   if (st.lavalinkPlayer && lavalink.isLavalinkUsable(guild.client)) {
@@ -1335,8 +1363,10 @@ async function enqueueDirectTracks(guild, tracks, requesterId, prisma = null) {
   }
   if (!tracks.length) return { error: "Aucun morceau." };
   const st = getState(guild.id);
+  const rid = String(requesterId || "0");
   for (const t of tracks) {
-    st.queue.push({ title: t.title, url: t.url, requesterId });
+    const spotifyCosplay = trackUsesSpotifyCosplay(t);
+    st.queue.push({ title: t.title, url: t.url, requesterId: rid, spotifyCosplay });
   }
   const idle = isPlaybackIdle(st);
   if (idle) await playNext(guild);
@@ -1345,13 +1375,20 @@ async function enqueueDirectTracks(guild, tracks, requesterId, prisma = null) {
       prisma,
       guild.id,
       requesterId,
-      tracks.map((t) => ({ title: t.title, url: t.url, source: t.source || "youtube" }))
+      tracks.map((t) => ({
+        title: t.title,
+        url: t.url,
+        source: (trackUsesSpotifyCosplay(t) ? "spotify_via_youtube" : String(t.source || "youtube")).slice(0, 40)
+      }))
     );
   }
+  const firstSpotify = trackUsesSpotifyCosplay(tracks[0]);
+  const firstTitle = tracks[0]?.title;
   return {
     ok: true,
     added: tracks.length,
-    firstTitle: tracks[0]?.title,
+    firstTitle,
+    firstTitleDisplay: firstSpotify ? `🟢 Spotify (YT) — ${firstTitle}` : firstTitle,
     queueLen: st.queue.length
   };
 }
@@ -1370,7 +1407,13 @@ async function enqueueQuery(guild, query, requesterId, prisma = null) {
   const resolved = await resolveQueryToYoutubeTracks(raw, guild);
   if (resolved.error) return { error: resolved.error };
   const src = guessSourceFromQuery(raw);
-  const tracks = resolved.tracks.map((t) => ({ title: t.title, url: t.url, source: src }));
+  const spotifyBatch = /^spotify_/i.test(src);
+  const tracks = resolved.tracks.map((t) => ({
+    title: t.title,
+    url: t.url,
+    source: src,
+    spotifyCosplay: spotifyBatch
+  }));
   return enqueueDirectTracks(guild, tracks, requesterId, prisma);
 }
 

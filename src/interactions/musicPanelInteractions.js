@@ -108,7 +108,7 @@ async function runPlayQueryFlow(interaction, client, opts) {
     const enq = await musicService.enqueueQuery(interaction.guild, q, interaction.user.id, prisma);
     if (enq.error) await interaction.editReply({ content: enq.error });
     else {
-      const first = enq.firstTitle || "OK";
+      const first = enq.firstTitleDisplay || enq.firstTitle || "OK";
       await interaction.editReply({
         content:
           enq.added > 1
@@ -327,11 +327,15 @@ async function handleMusicPanelInteractions(client, interaction) {
         await interaction.followUp({ content: j.error, flags: MessageFlags.Ephemeral });
         return true;
       }
-      const tracks = items.map((it) => ({
-        title: it.title,
-        url: it.url,
-        source: "saved_playlist"
-      }));
+      const tracks = items.map((it) => {
+        const q = musicPlaylist.playlistItemToQueueTrack(it);
+        return {
+          title: q.title,
+          url: q.url,
+          source: "saved_playlist",
+          spotifyCosplay: q.spotifyCosplay
+        };
+      });
       const enq = await musicService.enqueueDirectTracks(
         interaction.guild,
         tracks,
@@ -529,7 +533,9 @@ async function handleMusicPanelInteractions(client, interaction) {
         if (enq.error) errs.push(enq.error);
         else {
           totalAdded += Number(enq.added) || 0;
-          if (!firstTitle && enq.firstTitle) firstTitle = enq.firstTitle;
+          if (!firstTitle && (enq.firstTitleDisplay || enq.firstTitle)) {
+            firstTitle = enq.firstTitleDisplay || enq.firstTitle;
+          }
         }
       }
       if (!totalAdded && errs.length) {
@@ -538,7 +544,7 @@ async function handleMusicPanelInteractions(client, interaction) {
         });
         return true;
       }
-      let msg = `**${totalAdded}** morceau(x) ajoute(s) depuis **${urls.length}** playlist(s). Premier : **${firstTitle || "?"}**.`;
+      let msg = `**${totalAdded}** morceau(x) ajoute(s) depuis **${urls.length}** playlist(s). Premier : **${firstTitle || "?"}**.\n🎭 *Audio YouTube, vibe Spotify.*`;
       if (errs.length)
         msg += `\n_(Certaines lignes ont echoue : ${errs
           .slice(0, 2)
@@ -675,18 +681,20 @@ async function handleMusicPanelInteractions(client, interaction) {
       return true;
     }
     if (mode === "j") {
+      const q = musicPlaylist.playlistItemToQueueTrack(owned);
       const r = await musicService.playPlaylistItemNow(
         interaction.guild,
-        { title: owned.title, url: owned.url },
+        { title: q.title, url: q.url, spotifyCosplay: q.spotifyCosplay },
         interaction.user.id
       );
       if (r.error) {
         await interaction.followUp({ content: r.error, flags: MessageFlags.Ephemeral });
       }
     } else {
+      const q = musicPlaylist.playlistItemToQueueTrack(owned);
       const enq = await musicService.enqueueDirectTracks(
         interaction.guild,
-        [{ title: owned.title, url: owned.url, source: "saved_playlist" }],
+        [{ title: q.title, url: q.url, source: "saved_playlist", spotifyCosplay: q.spotifyCosplay }],
         interaction.user.id,
         client.prisma
       );
@@ -749,7 +757,7 @@ async function handleMusicPanelInteractions(client, interaction) {
       else
         await interaction
           .editReply({
-            content: `Ajoute : **${enq.firstTitle}** (${enq.queueLen} en file).`,
+            content: `Ajoute : **${enq.firstTitleDisplay || enq.firstTitle}** (${enq.queueLen} en file).`,
             components: []
           })
           .catch(() => null);
@@ -789,9 +797,18 @@ async function handleMusicPanelInteractions(client, interaction) {
         await interaction.editReply({ content: j.error, components: [] }).catch(() => null);
         return true;
       }
+      const src = String(item.source || "");
+      const spotifyCosplay = /^spotify/i.test(src) || src === "spotify_via_youtube";
       const enq = await musicService.enqueueDirectTracks(
         interaction.guild,
-        [{ title: item.title, url: item.url, source: "history_replay" }],
+        [
+          {
+            title: item.title,
+            url: item.url,
+            source: item.source || "history_replay",
+            spotifyCosplay
+          }
+        ],
         interaction.user.id,
         client.prisma
       );
@@ -866,7 +883,7 @@ async function handleMusicPanelInteractions(client, interaction) {
       const enq = await musicService.enqueueQuery(interaction.guild, link, interaction.user.id, client.prisma);
       if (enq.error) await interaction.editReply({ content: enq.error });
       else {
-        const first = enq.firstTitle || "OK";
+        const first = enq.firstTitleDisplay || enq.firstTitle || "OK";
         await interaction.editReply({
           content:
             enq.added > 1
