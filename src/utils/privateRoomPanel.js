@@ -37,7 +37,7 @@ function buildPrivateRoomPanel(hasChannel, prefsSummary, ownerId, opts = {}) {
     "",
     prefsSummary || "",
     "",
-    "*Seul le membre mentionne peut utiliser les boutons ci-dessus. Le bouton **MUSIQUE** : aussi le **staff** (role musique / salon prive, voir config).*"
+    "*Le **proprietaire** du salon (mentionne) ou un **membre staff** (role autorise pour les vocaux prives / musique) peut utiliser tous les boutons, **MUSIQUE** y compris.*"
   ].join("\n");
 
   const row1 = new ActionRowBuilder().addComponents(

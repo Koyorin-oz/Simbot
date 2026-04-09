@@ -330,6 +330,70 @@ async function deleteIfOwnerEmpty(client, channel) {
   client.privateRoomSessions.set(entry[0], { voiceChannelId: null });
 }
 
+/**
+ * Membres avec ce role : meme acces que le proprietaire sur le panneau vocal prive (boutons + formulaires).
+ * ID configure : `music.privateRoomStaffBypassRoleId` / `MUSIC_PRIVATE_ROOM_STAFF_ROLE_ID`.
+ */
+function memberHasPrivateRoomStaffBypass(member) {
+  const roleId = String(config.music?.privateRoomStaffBypassRoleId || "").trim();
+  return Boolean(roleId && member?.roles?.cache?.has(roleId));
+}
+
+/**
+ * Retrouve le vocal prive du proprietaire : session memoire, sinon le salon ou il est connecte (categorie bot).
+ * Evite « salon introuvable » si la session a saute (redemarrage) ou si `GuildChannel#editable` etait incoherent.
+ * @returns {Promise<{ channel?: import("discord.js").VoiceBasedChannel, error?: string, mayCreateNew?: boolean }>}
+ */
+async function resolveOwnerPrivateVoiceChannel(client, guild, ownerId) {
+  const pr = config.privateRoom;
+  if (!pr?.enabled) return { error: "Fonction desactivee.", mayCreateNew: false };
+  const catId = String(pr.voiceCategoryId || "");
+  const key = sessionKey(guild.id, ownerId);
+
+  async function adoptChannel(ch) {
+    if (!ch?.isVoiceBased?.()) return { error: "Salon vocal introuvable.", mayCreateNew: false };
+    if (catId && String(ch.parentId || "") !== catId) {
+      return {
+        error: "Ce salon n'est pas un vocal prive du bot (mauvaise categorie).",
+        mayCreateNew: false
+      };
+    }
+    const me = guild.members.me;
+    if (!me?.permissionsIn(ch).has(PermissionFlagsBits.ManageChannels)) {
+      return {
+        error:
+          "Le bot ne peut pas modifier ce vocal (il lui faut **Gerer les salons** sur ce salon). Verifie les permissions / la hierarchie des roles.",
+        mayCreateNew: false
+      };
+    }
+    if (!client.privateRoomSessions) client.privateRoomSessions = new Map();
+    client.privateRoomSessions.set(key, { voiceChannelId: ch.id });
+    return { channel: ch };
+  }
+
+  const s = client.privateRoomSessions?.get(key);
+  if (s?.voiceChannelId) {
+    const ch = await guild.channels.fetch(String(s.voiceChannelId)).catch(() => null);
+    if (ch) {
+      const r = await adoptChannel(ch);
+      if (r.channel) return r;
+      if (r.error) return r;
+    }
+    s.voiceChannelId = null;
+  }
+
+  const ownerMember = await guild.members.fetch(ownerId).catch(() => null);
+  if (ownerMember?.voice?.channel) {
+    return adoptChannel(ownerMember.voice.channel);
+  }
+
+  return {
+    error:
+      "Pas de salon vocal prive actif. Rejoins ton vocal ou utilise **Creer / Configurer mon salon** depuis le lobby.",
+    mayCreateNew: true
+  };
+}
+
 module.exports = {
   sessionKey,
   parseIdList,
@@ -348,5 +412,7 @@ module.exports = {
   MAX_SAVED_SPOTIFY_PLAYLISTS,
   isSpotifyPlaylistUrl,
   parseSavedSpotifyPlaylistUrls,
-  normalizeSavedSpotifyPlaylistLines
+  normalizeSavedSpotifyPlaylistLines,
+  memberHasPrivateRoomStaffBypass,
+  resolveOwnerPrivateVoiceChannel
 };

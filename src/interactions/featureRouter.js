@@ -23,7 +23,9 @@ const {
   savePrefs,
   parseIdList,
   safeJsonParseArray,
-  resolvePrivateRoomNameFromPrefs
+  resolvePrivateRoomNameFromPrefs,
+  memberHasPrivateRoomStaffBypass,
+  resolveOwnerPrivateVoiceChannel
 } = require("../services/privateRoomService");
 const {
   TICKET_ACCESS_ROLE_ID,
@@ -532,10 +534,10 @@ function normalizePrivateRoomMode(raw) {
 }
 
 async function applySessionVoiceFromPrefs(client, prisma, guildId, ownerId, member) {
-  const s = client.privateRoomSessions?.get(`${guildId}:${ownerId}`);
-  if (!s?.voiceChannelId) return { ok: true, skipped: true };
+  const resolved = await resolveOwnerPrivateVoiceChannel(client, member.guild, ownerId);
+  if (!resolved.channel) return { ok: true, skipped: true };
   const prefs = await loadPrefs(prisma, guildId, ownerId);
-  return applyVoiceChannelSettings(client, prisma, member, s.voiceChannelId, {
+  return applyVoiceChannelSettings(client, prisma, member, resolved.channel.id, {
     name: resolvePrivateRoomNameFromPrefs(member, prefs.defaultName),
     limit: Number.isFinite(Number(prefs.defaultLimit)) ? Number(prefs.defaultLimit) : 0,
     mode: normalizePrivateRoomMode(prefs.defaultMode),
@@ -551,9 +553,8 @@ async function handlePrivateRoomInteractions(client, interaction) {
   if (interaction.isButton() && interaction.customId.startsWith("prv_")) {
     const parsed = parsePrvOwner(interaction.customId);
     if (!parsed) return false;
-    const isPrvMusicPanel = parsed.prefix === "prv_music_panel";
-    const staffMusicOk = isPrvMusicPanel && musicService.memberHasPrivateRoomMusicBypass(interaction.member);
-    if (parsed.ownerId !== interaction.user.id && !staffMusicOk) {
+    const staffBypass = memberHasPrivateRoomStaffBypass(interaction.member);
+    if (parsed.ownerId !== interaction.user.id && !staffBypass) {
       await interaction.reply({ content: "Ce panneau ne t'est pas destine.", flags: MessageFlags.Ephemeral }).catch(() => null);
       return true;
     }
@@ -632,7 +633,7 @@ async function handlePrivateRoomInteractions(client, interaction) {
   if (interaction.isModalSubmit() && interaction.customId.startsWith("prv_")) {
     const parsed = parsePrvOwner(interaction.customId);
     if (!parsed || !parsed.prefix.includes("_modal")) return false;
-    if (parsed.ownerId !== interaction.user.id) {
+    if (parsed.ownerId !== interaction.user.id && !memberHasPrivateRoomStaffBypass(interaction.member)) {
       await interaction.reply({ content: "Ce formulaire ne t'est pas destine.", flags: MessageFlags.Ephemeral }).catch(() => null);
       return true;
     }
@@ -650,27 +651,27 @@ async function handlePrivateRoomInteractions(client, interaction) {
       const mode = modeMap[modeRaw] || "open";
 
       const member = await interaction.guild.members.fetch(ownerId).catch(() => interaction.member);
-      const s = client.privateRoomSessions?.get(`${interaction.guildId}:${ownerId}`);
       const payload = { name, limit, mode, blacklistIds: bl, whitelistIds: wl };
 
-      if (s?.voiceChannelId) {
-        const ch = await interaction.guild.channels.fetch(s.voiceChannelId).catch(() => null);
-        if (ch?.isVoiceBased?.()) {
-          const applied = await applyVoiceChannelSettings(
-            client,
-            client.prisma,
-            member,
-            s.voiceChannelId,
-            payload
-          );
-          if (!applied.ok) {
-            await interaction.editReply({ content: applied.error });
-            return true;
-          }
-          await interaction.editReply({ content: `Parametres appliques sur ${applied.channel}.` });
+      const resolved = await resolveOwnerPrivateVoiceChannel(client, interaction.guild, ownerId);
+      if (resolved.channel) {
+        const applied = await applyVoiceChannelSettings(
+          client,
+          client.prisma,
+          member,
+          resolved.channel.id,
+          payload
+        );
+        if (!applied.ok) {
+          await interaction.editReply({ content: applied.error });
           return true;
         }
-        s.voiceChannelId = null;
+        await interaction.editReply({ content: `Parametres appliques sur ${applied.channel}.` });
+        return true;
+      }
+      if (resolved.error && resolved.mayCreateNew === false) {
+        await interaction.editReply({ content: resolved.error });
+        return true;
       }
 
       const result = await createTempVoice(client, client.prisma, member, payload);
@@ -686,17 +687,12 @@ async function handlePrivateRoomInteractions(client, interaction) {
     if (prefix === "prv_rename_modal") {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const name = interaction.fields.getTextInputValue("pr_val").trim();
-      const s = client.privateRoomSessions?.get(`${interaction.guildId}:${ownerId}`);
-      if (!s?.voiceChannelId) {
-        await interaction.editReply({ content: "Pas de salon actif." });
+      const resolved = await resolveOwnerPrivateVoiceChannel(client, interaction.guild, ownerId);
+      if (!resolved.channel) {
+        await interaction.editReply({ content: resolved.error || "Pas de salon actif." });
         return true;
       }
-      const ch = await interaction.guild.channels.fetch(s.voiceChannelId).catch(() => null);
-      if (!ch?.editable) {
-        await interaction.editReply({ content: "Salon introuvable." });
-        return true;
-      }
-      await ch.setName(name.slice(0, 100)).catch(() => null);
+      await resolved.channel.setName(name.slice(0, 100)).catch(() => null);
       await interaction.editReply({ content: "Nom mis a jour." });
       return true;
     }
@@ -704,17 +700,12 @@ async function handlePrivateRoomInteractions(client, interaction) {
     if (prefix === "prv_limit_modal") {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const n = Math.max(0, Math.min(99, Number(interaction.fields.getTextInputValue("pr_val"))));
-      const s = client.privateRoomSessions?.get(`${interaction.guildId}:${ownerId}`);
-      if (!s?.voiceChannelId) {
-        await interaction.editReply({ content: "Pas de salon actif." });
+      const resolved = await resolveOwnerPrivateVoiceChannel(client, interaction.guild, ownerId);
+      if (!resolved.channel) {
+        await interaction.editReply({ content: resolved.error || "Pas de salon actif." });
         return true;
       }
-      const ch = await interaction.guild.channels.fetch(s.voiceChannelId).catch(() => null);
-      if (!ch?.editable) {
-        await interaction.editReply({ content: "Salon introuvable." });
-        return true;
-      }
-      await ch.setUserLimit(n || 0).catch(() => null);
+      await resolved.channel.setUserLimit(n || 0).catch(() => null);
       await interaction.editReply({ content: "Limite mise a jour." });
       return true;
     }

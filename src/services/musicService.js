@@ -7,6 +7,7 @@ const fs = require("fs");
 const execFileAsync = promisify(execFile);
 const config = require("../config");
 const lavalink = require("./lavalinkService");
+const { memberHasPrivateRoomStaffBypass } = require("./privateRoomService");
 
 let voiceMod = null;
 /** Lecture / recherche YouTube via play-dl (flux audio + decipher separes de ytdl-core). */
@@ -471,8 +472,7 @@ function getPrivateRoomOwnerIdForVoiceChannel(client, guildId, voiceChannelId) {
 }
 
 function memberHasPrivateRoomMusicBypass(member) {
-  const roleId = String(config.music?.privateRoomStaffBypassRoleId || "").trim();
-  return Boolean(roleId && member?.roles?.cache?.has(roleId));
+  return memberHasPrivateRoomStaffBypass(member);
 }
 
 /**
