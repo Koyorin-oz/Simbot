@@ -11,6 +11,10 @@ const { buildSanctionEmbed } = require("../../utils/sanctionEmbed");
 const { moderatorLabelForDm } = require("../../utils/sanctionDmNotice");
 const { APPEAL_FORM_URL } = require("../../utils/ticketPanels");
 const { assertCanSanctionMember } = require("../../utils/staffSanctionHierarchy");
+const {
+  DELETE_MESSAGE_HISTORY_CHOICES,
+  parseDeleteMessageSecondsFromChoice
+} = require("../../utils/moderationMessagePurge");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -21,11 +25,19 @@ module.exports = {
     .addStringOption(o => o.setName("raison").setDescription("Raison").setRequired(false))
     .addBooleanOption(o =>
       o.setName("anonyme").setDescription("Masquer le modérateur dans le MP à la cible").setRequired(false)
+    )
+    .addStringOption(o =>
+      o
+        .setName("supprimer_messages")
+        .setDescription("Supprimer les messages recents de ce membre (comme sur le client Discord)")
+        .setRequired(false)
+        .addChoices(...DELETE_MESSAGE_HISTORY_CHOICES)
     ),
   async execute(client, interaction) {
     const user = interaction.options.getUser("membre", true);
     const reason = interaction.options.getString("raison") || "Aucune raison";
     const anonyme = interaction.options.getBoolean("anonyme") === true;
+    const deleteSeconds = parseDeleteMessageSecondsFromChoice(interaction.options.getString("supprimer_messages"));
     const byDm = moderatorLabelForDm(interaction, anonyme);
 
     const targetMember = await interaction.guild.members.fetch(user.id).catch(() => null);
@@ -75,7 +87,9 @@ module.exports = {
         .catch(() => false));
     const dmSent = embedDmOk;
 
-    await interaction.guild.members.ban(user.id, { reason });
+    const banOpts = { reason };
+    if (deleteSeconds > 0) banOpts.deleteMessageSeconds = deleteSeconds;
+    await interaction.guild.members.ban(user.id, banOpts);
     await client.prisma.punishment.create({ data: { guildId: interaction.guildId, userId: user.id, moderatorId: interaction.user.id, type: "BAN", reason } });
     const embed = buildSanctionEmbed({
       title: interaction.guild.name,
@@ -87,6 +101,15 @@ module.exports = {
       ? "DM envoye avant bannissement."
       : "DM impossible (probablement fermes), bannissement effectue quand meme.";
     if (dmSent && !linkDmOk) dmLine += " Le second message (lien direct) n'a pas pu etre envoye.";
+    if (deleteSeconds > 0) {
+      const win =
+        deleteSeconds % 86400 === 0
+          ? `${deleteSeconds / 86400} dernier(s) jour(s)`
+          : deleteSeconds % 3600 === 0
+            ? `${deleteSeconds / 3600} derniere(s) heure(s)`
+            : `${Math.max(1, Math.round(deleteSeconds / 60))} derniere(s) minute(s)`;
+      dmLine += ` Historique des messages supprime (${win}, API Discord).`;
+    }
     await interaction.editReply({
       content: dmLine,
       embeds: [embed]

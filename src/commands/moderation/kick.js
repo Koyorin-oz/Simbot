@@ -7,6 +7,11 @@ const {
 } = require("../../utils/sanctionDmNotice");
 const { deferPublic } = require("../../utils/slashDefer");
 const { assertCanSanctionMember, formatBotHierarchyBlockReason } = require("../../utils/staffSanctionHierarchy");
+const {
+  DELETE_MESSAGE_HISTORY_CHOICES,
+  parseDeleteMessageSecondsFromChoice,
+  purgeUserMessagesInWindow
+} = require("../../utils/moderationMessagePurge");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -17,11 +22,21 @@ module.exports = {
     .addStringOption(o => o.setName("raison").setDescription("Raison").setRequired(false))
     .addBooleanOption(o =>
       o.setName("anonyme").setDescription("Masquer le modérateur dans le MP à la cible").setRequired(false)
+    )
+    .addStringOption(o =>
+      o
+        .setName("supprimer_messages")
+        .setDescription(
+          "Supprimer les messages recents de ce membre (max 14 j par message, salons ou le bot peut gerer)"
+        )
+        .setRequired(false)
+        .addChoices(...DELETE_MESSAGE_HISTORY_CHOICES)
     ),
   async execute(client, interaction) {
     const member = interaction.options.getMember("membre", true);
     const reason = interaction.options.getString("raison") || "Aucune raison";
     const anonyme = interaction.options.getBoolean("anonyme") === true;
+    const deleteSeconds = parseDeleteMessageSecondsFromChoice(interaction.options.getString("supprimer_messages"));
 
     const hierarchyFail = assertCanSanctionMember(
       interaction.member,
@@ -47,7 +62,16 @@ module.exports = {
     }
 
     const targetUser = member.user;
+    const kickedId = member.id;
     await member.kick(reason);
+    let purgedCount = 0;
+    if (deleteSeconds > 0) {
+      try {
+        purgedCount = await purgeUserMessagesInWindow(interaction.guild, kickedId, deleteSeconds);
+      } catch (e) {
+        console.warn("[KICK] purge messages", e?.message || e);
+      }
+    }
     await client.prisma.punishment.create({ data: { guildId: interaction.guildId, userId: member.id, moderatorId: interaction.user.id, type: "KICK", reason } });
 
     const dmEmbed = buildPostSanctionDmEmbed({
@@ -64,10 +88,14 @@ module.exports = {
       reason,
       moderatorLabel: `${interaction.user} (${interaction.user.tag})`
     });
+    let content = dmOk
+      ? "MP de notification envoyé à la cible."
+      : "MP impossible (DM fermés ou refusés), expulsion effectuée.";
+    if (deleteSeconds > 0) {
+      content += ` Messages supprimés (approx.) : **${purgedCount}** — uniquement les messages de moins de 14 j et dans les salons où j’ai Voir + Gérer + Historique.`;
+    }
     await interaction.editReply({
-      content: dmOk
-        ? "MP de notification envoyé à la cible."
-        : "MP impossible (DM fermés ou refusés), expulsion effectuée.",
+      content,
       embeds: [embed]
     });
   }
