@@ -63,9 +63,12 @@ async function resolveChannelIdFromHandle(handle) {
   if (!h) return null;
   const url = `https://www.youtube.com/@${encodeURIComponent(h)}`;
   const html = await fetchText(url);
+  // Premier browseId = la page @handle consultee (le premier "channelId" peut etre une autre chaine du sidebar).
+  const browseFirst = html.match(/"browseId":"(UC[\w-]{22})"/);
+  if (browseFirst) return browseFirst[1];
+
   const patterns = [
     /"channelId":"(UC[\w-]{22})"/,
-    /"browseId":"(UC[\w-]{22})"/,
     /channel_id=(UC[\w-]{22})/,
     /\\"externalId\\":\\"(UC[\w-]{22})\\"/
   ];
@@ -142,23 +145,27 @@ async function resolveSources(sources) {
     const handleRaw = s.handle ? String(s.handle).replace(/^@/, "").trim() : "";
     const handleNorm = handleRaw.toLowerCase();
 
-    if (s.channelId && !handleRaw) {
-      console.warn(
-        "[YOUTUBE_NOTIFY] Source ignoree : `channelId` seul n'est pas autorise. Utilise @Carmineoff ou @Carminator.officiel (handle dans la config)."
-      );
-      continue;
-    }
-
-    if (!handleNorm || !ALLOWED_NOTIFY_HANDLES.has(handleNorm)) {
-      if (handleRaw) {
+    if (!handleRaw) {
+      if (s.channelId) {
         console.warn(
-          `[YOUTUBE_NOTIFY] Handle @${handleRaw} ignore — seules @Carmineoff et @Carminator.officiel sont autorisees.`
+          "[YOUTUBE_NOTIFY] Source ignoree : `channelId` seul n'est pas autorise. Ajoute le handle @Carmineoff ou @Carminator.officiel."
         );
       }
       continue;
     }
 
-    const id = await resolveChannelIdFromHandle(handleRaw).catch(() => null);
+    if (!handleNorm || !ALLOWED_NOTIFY_HANDLES.has(handleNorm)) {
+      console.warn(
+        `[YOUTUBE_NOTIFY] Handle @${handleRaw} ignore — seules @Carmineoff et @Carminator.officiel sont autorisees.`
+      );
+      continue;
+    }
+
+    const explicit = String(s.channelId || "").trim();
+    const id =
+      explicit && /^UC[\w-]{22}$/.test(explicit)
+        ? explicit
+        : await resolveChannelIdFromHandle(handleRaw).catch(() => null);
     if (!id) {
       console.error(`[YOUTUBE_NOTIFY] Impossible de resoudre le handle @${handleRaw}`);
       continue;

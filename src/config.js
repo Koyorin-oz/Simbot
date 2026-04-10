@@ -347,10 +347,11 @@ module.exports = {
     /**
      * Uniquement ces deux chaines (RSS) — toute autre entree est ignoree par le service (liste blanche).
      * https://www.youtube.com/@Carminator.officiel et https://www.youtube.com/@Carmineoff
+     * `channelId` optionnel (recommande) : evite un mauvais UC scrape depuis le HTML YouTube.
      */
     sources: [
-      { handle: "Carminator.officiel", displayName: "Carminator" },
-      { handle: "Carmineoff", displayName: "Carmineoff" }
+      { handle: "Carminator.officiel", displayName: "Carminator", channelId: "UCFwHronrvO5k4Iyp4jm4sxw" },
+      { handle: "Carmineoff", displayName: "Carmineoff", channelId: "UCzYVs0LTrd6265AIkl-vZlA" }
     ]
   }
 };
