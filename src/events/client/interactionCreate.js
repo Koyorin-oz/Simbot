@@ -361,6 +361,64 @@ module.exports = {
       return;
     }
 
+    if (interaction.isButton() && interaction.customId.startsWith("ping_role_toggle:")) {
+      const { TOGGLE_PREFIX, getAllowedPingRoleIds } = require("../../utils/pingRolesPanel");
+      const roleId = interaction.customId.slice(TOGGLE_PREFIX.length).trim();
+      if (!interaction.inGuild()) {
+        await interaction.reply({ content: "Utilisable uniquement sur le serveur.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+      const allowedIds = getAllowedPingRoleIds(config);
+      if (!roleId || !/^\d{17,22}$/.test(roleId) || !allowedIds.has(roleId)) {
+        await interaction.reply({ content: "Ce bouton n'est plus valide.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+      const member = interaction.member;
+      if (!member) {
+        await interaction.reply({ content: "Membre introuvable.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+      const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+      if (!role) {
+        await interaction.reply({ content: "Rôle introuvable.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+      const me = interaction.guild.members.me;
+      if (!me?.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        await interaction.reply({
+          content: "Je n'ai pas la permission **Gérer les rôles**.",
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+      if (role.position >= me.roles.highest.position) {
+        await interaction.reply({
+          content: "Ce rôle est trop haut dans la liste : place mes rôles au-dessus des rôles ping.",
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+      const has = member.roles.cache.has(roleId);
+      try {
+        if (has) await member.roles.remove(role, "Panel ping : retrait par le membre");
+        else await member.roles.add(role, "Panel ping : ajout par le membre");
+      } catch (e) {
+        const msg = e?.message || String(e);
+        await interaction
+          .reply({
+            content: `Impossible de modifier le rôle : ${msg.slice(0, 400)}`,
+            flags: MessageFlags.Ephemeral
+          })
+          .catch(() => null);
+        return;
+      }
+      await interaction.reply({
+        content: has ? "Tu ne recevras plus ce ping — rôle **retiré**." : "C'est bon — rôle **ajouté**.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
     if (interaction.isStringSelectMenu() && interaction.customId === "dev_deploy_select") {
       if (!interaction.inGuild()) {
         await interaction.reply({ content: "Utilisable uniquement sur un serveur.", flags: MessageFlags.Ephemeral });
@@ -385,8 +443,8 @@ module.exports = {
       const colon = raw.indexOf(":");
       const resetChar = colon >= 0 ? raw.slice(0, colon) : "";
       const key = colon >= 0 ? raw.slice(colon + 1) : "";
-      const { DEPLOY_ACTION_KEYS } = require("../../utils/deployPanel");
-      const allowed = new Set(DEPLOY_ACTION_KEYS);
+      const { getDeployActionKeys } = require("../../utils/deployPanel");
+      const allowed = new Set(getDeployActionKeys());
       if (!allowed.has(key) || (resetChar !== "0" && resetChar !== "1")) {
         await interaction.reply({ content: "Choix invalide, relance `/dev-deployer`.", flags: MessageFlags.Ephemeral });
         return;

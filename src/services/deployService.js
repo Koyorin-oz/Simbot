@@ -6,6 +6,7 @@ const { buildTicketPanelMessage } = require("../utils/ticketPanels");
 const { buildBootstrapSuggestionsIntroV2 } = require("../utils/bootstrapSalonPanelsV2");
 const { sendWelcomeMessage, sendAltWelcomeMessage, WELCOME_MESSAGE_CHANNEL_ID } = require("./welcomeService");
 const { buildSalonVerificationMessage } = require("./welcomeVerifyService");
+const { buildPingRolesPanelPayload } = require("../utils/pingRolesPanel");
 
 async function clearRecentBotMessages(channel, max = 30) {
   if (!channel?.isTextBased?.()) return 0;
@@ -163,8 +164,25 @@ async function runDeployAction(client, guild, key, actorUserId = null, opts = {}
       return ["**Deploiement complet**", ...parts.map((p, i) => `${i + 1}. ${p}`)].join("\n");
     }
 
-    default:
+    default: {
+      const pingT = (config.pingRolesPanel?.deployTargets || []).find((x) => x.key === key);
+      if (pingT?.channelId) {
+        const ch = await guild.channels.fetch(String(pingT.channelId).trim()).catch(() => null);
+        if (!ch?.isTextBased?.()) {
+          return "**Roles ping** : salon introuvable ou non textuel.";
+        }
+        const me = guild.members.me;
+        const perms = ch.permissionsFor(me);
+        if (!perms?.has("ViewChannel") || !perms?.has("SendMessages") || !perms?.has("EmbedLinks")) {
+          return "**Roles ping** : permissions bot insuffisantes sur le salon (voir / embed / envoyer).";
+        }
+        if (reset) await clearRecentBotMessages(ch, 30);
+        await ch.send(buildPingRolesPanelPayload());
+        const label = pingT.selectTitle || key;
+        return `**Roles ping** (${label}) : ${reset ? "reinitialise puis " : ""}panel envoye dans ${ch}.`;
+      }
       return "Action inconnue.";
+    }
   }
 }
 

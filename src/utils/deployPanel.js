@@ -6,6 +6,7 @@ const {
   StringSelectMenuBuilder,
   MessageFlags
 } = require("discord.js");
+const config = require("../config");
 const { ACCENT_COLOR } = require("./componentsV2Panels");
 
 function buildDeployMenu() {
@@ -95,6 +96,13 @@ const DEPLOY_ACTION_KEYS = [
   "tout"
 ];
 
+function getDeployActionKeys() {
+  const extra = (config.pingRolesPanel?.deployTargets || [])
+    .map((t) => String(t.key || "").trim())
+    .filter(Boolean);
+  return [...DEPLOY_ACTION_KEYS, ...extra];
+}
+
 /**
  * Message ephemere avec menu deroulant : chaque option encode `0|1:key` (0=ajouter, 1=reinitialiser).
  * Evite le modal Discord (labels max 45 caracteres — l’ancien modal cassait showModal).
@@ -128,6 +136,16 @@ function buildDevDeployerSelectMessage() {
     ["suggestions_intro", "Intro suggestions", null],
     ["tout", "Tout deployer (chaine complete)", null]
   ];
+
+  for (const t of config.pingRolesPanel?.deployTargets || []) {
+    const key = String(t.key || "").trim();
+    if (!key) continue;
+    rows.push([
+      key,
+      String(t.selectTitle || "Roles ping").slice(0, 100),
+      t.selectDescription ? String(t.selectDescription).slice(0, 100) : null
+    ]);
+  }
 
   const descAjouterDef = "Envoie / applique sans vider le salon";
   const descReinitDef = "Supprime les derniers msgs du bot puis deploie";
@@ -166,4 +184,9 @@ function buildDevDeployerSelectMessage() {
   };
 }
 
-module.exports = { buildDeployMenu, buildDevDeployerSelectMessage, DEPLOY_ACTION_KEYS };
+module.exports = {
+  buildDeployMenu,
+  buildDevDeployerSelectMessage,
+  DEPLOY_ACTION_KEYS,
+  getDeployActionKeys
+};
