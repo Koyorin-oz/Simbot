@@ -17,6 +17,12 @@ const RSS_BY_CHANNEL = (channelId) =>
 /** Seules ces chaines (@handle sans @, minuscules) declenchent des notifs — pas de channelId arbitraire. */
 const ALLOWED_NOTIFY_HANDLES = new Set(["carmineoff", "carminator.officiel"]);
 
+/**
+ * Jamais de notifs pour ces UC / handles (ex. https://www.youtube.com/@keketos = "kekos", deja confondu avec Carmine par erreur de scrape).
+ */
+const BLOCKED_NOTIFY_CHANNEL_IDS = new Set(["UCm-QUW51xALsYPv_DnUc40A"]);
+const BLOCKED_NOTIFY_HANDLES = new Set(["keketos", "kekos"]);
+
 function decodeXmlEntities(s) {
   return String(s || "")
     .replace(/&amp;/g, "&")
@@ -154,6 +160,11 @@ async function resolveSources(sources) {
       continue;
     }
 
+    if (BLOCKED_NOTIFY_HANDLES.has(handleNorm)) {
+      console.warn(`[YOUTUBE_NOTIFY] Handle @${handleRaw} sur liste noire — pas de notifs.`);
+      continue;
+    }
+
     if (!handleNorm || !ALLOWED_NOTIFY_HANDLES.has(handleNorm)) {
       console.warn(
         `[YOUTUBE_NOTIFY] Handle @${handleRaw} ignore — seules @Carmineoff et @Carminator.officiel sont autorisees.`
@@ -172,6 +183,12 @@ async function resolveSources(sources) {
     }
     if (!/^UC[\w-]{22}$/.test(id)) {
       console.error(`[YOUTUBE_NOTIFY] channelId invalide apres resolution @${handleRaw}`);
+      continue;
+    }
+    if (BLOCKED_NOTIFY_CHANNEL_IDS.has(id)) {
+      console.error(
+        `[YOUTUBE_NOTIFY] channelId ${id} sur liste noire (@keketos / kekos) — source @${handleRaw} ignoree.`
+      );
       continue;
     }
     out.push({
