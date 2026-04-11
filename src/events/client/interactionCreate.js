@@ -362,14 +362,15 @@ module.exports = {
     }
 
     if (interaction.isButton() && interaction.customId.startsWith("ping_role_toggle:")) {
-      const { TOGGLE_PREFIX, getAllowedPingRoleIds } = require("../../utils/pingRolesPanel");
-      const roleId = interaction.customId.slice(TOGGLE_PREFIX.length).trim();
+      const { parsePingRoleToggleCustomId, getAllowedPingRoleIds } = require("../../utils/pingRolesPanel");
+      const parsed = parsePingRoleToggleCustomId(interaction.customId);
+      const roleId = parsed?.roleId || "";
       if (!interaction.inGuild()) {
         await interaction.reply({ content: "Utilisable uniquement sur le serveur.", flags: MessageFlags.Ephemeral });
         return;
       }
       const allowedIds = getAllowedPingRoleIds(config);
-      if (!roleId || !/^\d{17,22}$/.test(roleId) || !allowedIds.has(roleId)) {
+      if (!roleId || !allowedIds.has(roleId)) {
         await interaction.reply({ content: "Ce bouton n'est plus valide.", flags: MessageFlags.Ephemeral });
         return;
       }

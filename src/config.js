@@ -305,28 +305,54 @@ module.exports = {
    * Panel « rôles ping » : embed + boutons (toggle) pour s’assigner / retirer des rôles de notification.
    * Déploiement : `/dev-deployer` → choisir un des deux salons cibles.
    */
-  pingRolesPanel: {
-    deployTargets: [
-      {
-        key: "ping_roles_annonce",
-        channelId: "1492536116287377470",
-        selectTitle: "Roles ping — salon annonces",
-        selectDescription: "Embed + boutons dans le salon annonces (1492536116287377470)"
-      },
-      {
-        key: "ping_roles_secondaire",
-        channelId: "1238386525264281640",
-        selectTitle: "Roles ping — salon secondaire",
-        selectDescription: "Meme panel dans l’autre salon (1238386525264281640)"
-      }
-    ],
-    /** Meme ID pour actualité + événements → un seul bouton au rendu (libellés fusionnés). */
-    roles: [
-      { id: "1416492169312735336", label: "Ping actualité" },
-      { id: "1492528126960468088", label: "Ping Carminator" },
-      { id: "1416492169312735336", label: "Ping événements" }
-    ]
-  },
+  pingRolesPanel: (() => {
+    const eventsRoleId =
+      String(process.env.PING_EVENTS_ROLE_ID || "").trim() || "1416492169312735336";
+    return {
+      deployTargets: [
+        {
+          key: "ping_roles_annonce",
+          channelId: "1492536116287377470",
+          selectTitle: "Roles ping — salon annonces",
+          selectDescription: "Embed + boutons dans le salon annonces (1492536116287377470)"
+        },
+        {
+          key: "ping_roles_secondaire",
+          channelId: "1238386525264281640",
+          selectTitle: "Roles ping — salon secondaire",
+          selectDescription: "Meme panel dans l’autre salon (1238386525264281640)"
+        }
+      ],
+      /**
+       * Ordre des boutons : Carminator (rouge) → Events (Primary / bleu Discord) → Actualité (vert).
+       * `slot` = suffixe unique du customId (obligatoire si deux lignes partagent le même `id`).
+       * Rôle Events dédié : définis `PING_EVENTS_ROLE_ID` dans .env (sinon même ID qu’Actualité = doublon fonctionnel).
+       */
+      roles: [
+        {
+          slot: "carminator",
+          id: "1492528126960468088",
+          label: "Ping Carminator",
+          emoji: "⚔️",
+          style: "Danger"
+        },
+        {
+          slot: "events",
+          id: eventsRoleId,
+          label: "Ping Events",
+          emoji: "🎉",
+          style: "Primary"
+        },
+        {
+          slot: "actu",
+          id: "1416492169312735336",
+          label: "Ping Actualité",
+          emoji: "📩",
+          style: "Success"
+        }
+      ]
+    };
+  })(),
 
   /** Compteur vocal/catégorie/salon du nombre de membres. */
   serverStats: {
