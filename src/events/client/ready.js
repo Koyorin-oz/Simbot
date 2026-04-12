@@ -11,6 +11,7 @@ const { ensureInventoryTables } = require("../../services/inventoryService");
 const { isEconomyPaused } = require("../../services/economyRuntimeService");
 const { startJokeScheduler } = require("../../services/jokeScheduleService");
 const { startYoutubeNotifyPoller } = require("../../services/youtubeNotifyService");
+const { startTempBanScheduler } = require("../../services/tempBanScheduler");
 
 function startVoiceGainTicker(client) {
   stopVoiceGainTicker(client);
@@ -104,6 +105,7 @@ module.exports = {
     }
     startJokeScheduler(client);
     startYoutubeNotifyPoller(client);
+    startTempBanScheduler(client);
   },
   startVoiceGainTicker,
   stopVoiceGainTicker,

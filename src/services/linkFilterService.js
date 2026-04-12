@@ -1,11 +1,8 @@
 /**
- * Liens : règles serveur codées + liste blanche optionnelle (catégorie « LIEN autorise »).
- * - Tenor, cadeaux Discord : partout (tout le monde).
- * - Liens GIF (fichier .gif, Giphy) : partout ; invitations Discord restent bloquées.
- * - YouTube, TikTok, Instagram : uniquement dans `linkPolicy.mediaChannelId` (fils inclus).
- * - Invitations serveur Discord : bloquées sauf rôles bypass.
- * - Autres URLs : bloquées.
- * - Salons listés dans `linkPolicy.linkUnrestrictedChannelIds` : aucune règle de lien (fils inclus).
+ * Liens : invitations Discord bloquees (sauf bypass) ; beaucoup de domaines courants autorises partout.
+ * - Tenor, Giphy, Imgur, GIF en .gif, cadeaux Discord, YT / TikTok / IG : partout.
+ * - Liste blanche optionnelle (categorie « LIEN autorise »).
+ * - Salons `linkPolicy.linkUnrestrictedChannelIds` : aucune regle de lien.
  */
 
 const { normalizeForMatch } = require("./autoModService");
@@ -80,17 +77,16 @@ function isInstagram(norm) {
   return norm.includes("instagram.com") || norm.includes("instagr.am");
 }
 
-/** YT / TikTok / IG : autorisés seulement dans le salon média. */
-function isMediaChannelOnlyLink(norm) {
-  return isYoutube(norm) || isTiktok(norm) || isInstagram(norm);
-}
-
 function isGiphy(norm) {
   return norm.includes("giphy.com");
 }
 
+function isImgur(norm) {
+  return norm.includes("imgur.com") || norm.includes("i.imgur.com");
+}
+
 /**
- * URL dont le chemin se termine par .gif (hors query/fragment), ponctuation finale tolérée.
+ * URL dont le chemin se termine par .gif (hors query/fragment), ponctuation finale toleree.
  * @param {string} raw
  */
 function snippetPathEndsWithGif(raw) {
@@ -102,7 +98,6 @@ function snippetPathEndsWithGif(raw) {
   return /\.gif$/i.test(cleaned);
 }
 
-/** GIF « classiques » : Giphy ou lien direct .gif (Tenor / liste blanche déjà gérés ailleurs). */
 function isAllowedGifLinkEverywhere(raw, norm) {
   return isGiphy(norm) || snippetPathEndsWithGif(raw);
 }
@@ -120,24 +115,13 @@ function matchesExtraGlobalAllowlist(normalizedSnippet, allowlistTerms) {
 }
 
 /**
- * Tenor, Discord Gift, ou motifs catégorie « LIEN autorise ».
+ * Liens autorises partout (hors invites Discord, gerees a part).
  */
 function isAllowedLinkEverywhere(norm, linkAllowlistTerms) {
   if (isTenor(norm) || isDiscordGift(norm)) return true;
+  if (isYoutube(norm) || isTiktok(norm) || isInstagram(norm)) return true;
+  if (isGiphy(norm) || isImgur(norm)) return true;
   return matchesExtraGlobalAllowlist(norm, linkAllowlistTerms);
-}
-
-/**
- * @param {import("discord.js").Channel} channel
- * @param {string} mediaChannelId
- */
-function isInMediaLinkChannel(channel, mediaChannelId) {
-  if (!channel || !mediaChannelId) return false;
-  if (channel.id === mediaChannelId) return true;
-  if (typeof channel.isThread === "function" && channel.isThread() && channel.parentId === mediaChannelId) {
-    return true;
-  }
-  return false;
 }
 
 /**
@@ -161,7 +145,7 @@ function isInLinkUnrestrictedChannel(channel, channelIds) {
  * @param {import("discord.js").Message} message
  * @param {import("discord.js").GuildMember | null} member
  * @param {{ linkAllowlistTerms: string[] }} payload
- * @param {{ bypassRoleIds: string[], mediaChannelId: string, linkUnrestrictedChannelIds?: string[] }} linkPolicy
+ * @param {{ bypassRoleIds: string[], linkUnrestrictedChannelIds?: string[] }} linkPolicy
  */
 function shouldBlockLinksForMessage(message, member, payload, linkPolicy) {
   if (isInLinkUnrestrictedChannel(message.channel, linkPolicy?.linkUnrestrictedChannelIds)) {
@@ -175,7 +159,6 @@ function shouldBlockLinksForMessage(message, member, payload, linkPolicy) {
   if (!messageContainsLink(content)) return false;
 
   const snippets = extractLinkSnippets(content);
-  const mediaChannelId = String(linkPolicy?.mediaChannelId || "").trim();
   const extras = payload?.linkAllowlistTerms || [];
 
   for (const raw of snippets) {
@@ -191,13 +174,6 @@ function shouldBlockLinksForMessage(message, member, payload, linkPolicy) {
 
     if (isAllowedGifLinkEverywhere(raw, norm)) {
       continue;
-    }
-
-    if (isMediaChannelOnlyLink(norm)) {
-      if (isInMediaLinkChannel(message.channel, mediaChannelId)) {
-        continue;
-      }
-      return true;
     }
 
     return true;
