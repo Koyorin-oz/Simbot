@@ -143,6 +143,90 @@ async function syncWelcomeVerifyCategoryAccess(guild) {
   }
 }
 
+/** Anciens IDs « nouveau / non vérifié » à retirer même si la config pointe ailleurs. */
+const LEGACY_UNVERIFIED_ROLE_IDS = ["1486095572501926099"];
+
+/**
+ * Liste des rôles à retirer à la validation (config + legacy + env WELCOME_EXTRA_UNVERIFIED_ROLE_IDS).
+ * @returns {string[]}
+ */
+function getWelcomeUnverifiedRoleIdsToStrip() {
+  const v = config.welcomeVerify;
+  const main = v?.roleUnverifiedId ? [v.roleUnverifiedId] : [];
+  const fromEnv = String(process.env.WELCOME_EXTRA_UNVERIFIED_ROLE_IDS || "")
+    .split(/[,;\s]+/)
+    .map((s) => s.trim())
+    .filter((id) => /^\d{17,22}$/.test(id));
+  return [...new Set([...main, ...LEGACY_UNVERIFIED_ROLE_IDS, ...fromEnv])];
+}
+
+/**
+ * Retire les rôles non vérifiés (rafraîchit le membre pour limiter les faux négatifs du cache).
+ * @param {import("discord.js").Guild} guild
+ * @param {string} userId
+ * @param {{ passes?: number }} [opts]
+ */
+async function stripWelcomeUnverifiedRoles(guild, userId, opts = {}) {
+  const passes = opts.passes ?? 2;
+  const ids = getWelcomeUnverifiedRoleIdsToStrip();
+  if (!ids.length || passes < 1) return;
+
+  const me = guild.members.me;
+  if (!me?.permissions.has(PermissionFlagsBits.ManageRoles)) return;
+
+  for (let p = 0; p < passes; p++) {
+    const member = await guild.members.fetch({ user: userId, force: true }).catch(() => null);
+    if (!member) return;
+    for (const roleId of ids) {
+      if (!member.roles.cache.has(roleId)) continue;
+      // eslint-disable-next-line no-await-in-loop
+      await member.roles.remove(roleId).catch((e) => {
+        console.warn("[welcomeVerify] strip remove failed", roleId, e?.message || e);
+      });
+    }
+  }
+}
+
+/**
+ * Flux bouton validation : retire toujours les rôles « nouveau », ajoute le vérifié si besoin, 2e passe strip.
+ * @param {import("discord.js").Guild} guild
+ * @param {string} userId
+ */
+async function completeWelcomeVerification(guild, userId) {
+  const v = config.welcomeVerify;
+  if (!v?.enabled) return;
+
+  const me = guild.members.me;
+  if (!me?.permissions.has(PermissionFlagsBits.ManageRoles)) return;
+
+  let member = await guild.members.fetch({ user: userId, force: true }).catch(() => null);
+  if (!member || member.pending) return;
+
+  const ids = getWelcomeUnverifiedRoleIdsToStrip();
+  const removeUnverifiedFrom = async (m) => {
+    for (const roleId of ids) {
+      if (!m.roles.cache.has(roleId)) continue;
+      // eslint-disable-next-line no-await-in-loop
+      await m.roles.remove(roleId).catch((e) => {
+        console.warn("[welcomeVerify] complete remove", roleId, e?.message || e);
+      });
+    }
+  };
+
+  await removeUnverifiedFrom(member);
+
+  if (v.roleVerifiedId && !member.roles.cache.has(v.roleVerifiedId)) {
+    await member.roles.add(v.roleVerifiedId).catch((e) => {
+      console.warn("[welcomeVerify] add verified failed", e?.message || e);
+    });
+  }
+
+  member = await guild.members.fetch({ user: userId, force: true }).catch(() => null);
+  if (member) await removeUnverifiedFrom(member);
+
+  await syncWelcomeVerifyCategoryAccess(guild);
+}
+
 async function assignUnverifiedRole(member) {
   const v = config.welcomeVerify;
   if (!v?.enabled || !v.roleUnverifiedId) return;
@@ -170,6 +254,9 @@ module.exports = {
   VERIFICATION_BUTTON_CUSTOM_ID,
   buildSalonVerificationMessage,
   syncWelcomeVerifyCategoryAccess,
+  getWelcomeUnverifiedRoleIdsToStrip,
+  stripWelcomeUnverifiedRoles,
+  completeWelcomeVerification,
   assignUnverifiedRole,
   postRulesForMember
 };

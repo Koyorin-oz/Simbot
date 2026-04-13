@@ -12,7 +12,7 @@ const {
 } = require("discord.js");
 const config = require("../config");
 const {
-  syncWelcomeVerifyCategoryAccess,
+  completeWelcomeVerification,
   VERIFICATION_BUTTON_CUSTOM_ID
 } = require("../services/welcomeVerifyService");
 const {
@@ -69,40 +69,22 @@ async function handleWelcomeInteractions(client, interaction) {
   if (isVerifyButton) {
     await interaction.deferUpdate().catch(() => null);
 
+    const guild = interaction.guild;
     const member = interaction.member;
-    if (!member) return true;
+    if (!guild || !member) return true;
 
     if (member.pending) {
       return true;
     }
 
-    if (v.roleVerifiedId && member.roles.cache.has(v.roleVerifiedId)) {
-      return true;
-    }
-
-    const me = interaction.guild?.members.me;
+    const me = guild.members.me;
     if (!me?.permissions.has(PermissionFlagsBits.ManageRoles)) return true;
 
     try {
-      const unverifiedRoleIds = [
-        v.roleUnverifiedId,
-        // Legacy/test ID garde pour eviter qu'un ancien role reste colle apres verification
-        "1486095572501926099"
-      ].filter(Boolean);
-
-      for (const roleId of unverifiedRoleIds) {
-        if (member.roles.cache.has(roleId)) {
-          // eslint-disable-next-line no-await-in-loop
-          await member.roles.remove(roleId).catch(() => null);
-        }
-      }
-
-      if (v.roleVerifiedId) await member.roles.add(v.roleVerifiedId);
+      await completeWelcomeVerification(guild, interaction.user.id);
     } catch (e) {
-      return true;
+      console.warn("[welcomeVerify] interaction", e?.message || e);
     }
-
-    await syncWelcomeVerifyCategoryAccess(member.guild);
     return true;
   }
 
