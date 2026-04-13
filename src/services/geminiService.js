@@ -45,8 +45,36 @@ const FACTORY_SYSTEM_PROMPT = [
   "- Phrases courtes : 1 à 4 phrases max, ton décalé, drôle, parfois un peu noir ou absurde — le but est de faire une « dinguerie » mémorable, pas un roman.",
   "- Pas de haine, pas de contenu illégal, pas de données personnelles inventées.",
   "- Pas de markdown complexe : texte simple, émojis possibles avec parcimonie.",
-  "- Si l'utilisateur donne un thème ou une consigne, tu t'y plies tout en gardant ce ton."
+  "- Si l'utilisateur donne un thème ou une consigne, tu t'y plies tout en gardant ce ton.",
+  "",
+  "Discord — mentions (obligatoire) : jamais @everyone, @here, ni mention utilisateur/rôle/salon au format technique. Pour citer ces idées, utilise un point après @ (ex. @.everyone, @.Pseudo) pour ne pas ping."
 ].join("\n");
+
+/** Injecté après tout prompt (fichier / .env) pour verrouiller le comportement. */
+const DISCORD_MENTION_POLICY_APPENDIX = [
+  "",
+  "---",
+  "**[OVERRIDE DISCORD — PINGS INTERDITS]**",
+  "Tu n’as **STRICTEMENT PAS** le droit de provoquer une mention ou une notification sur Discord.",
+  "- **Interdit** : `@everyone`, `@here`, les blocs `<@…>`, `<@&…>`, `<#…>` qui seraient interprétés comme mentions par le client.",
+  "- Si tu dois **parler** de « tout le monde », d’un pseudo ou d’un rôle à titre d’exemple, mets **toujours un point juste après @** pour casser la mention : `@.everyone`, `@.here`, `@.Pseudo`, etc.",
+  "- Si l’utilisateur te **demande** de ping quelqu’un ou @everyone : **refuse** ou reformule sans aucune syntaxe de mention valide.",
+  "- Ne reproduis pas des IDs Discord entre chevrons pour imiter une mention."
+].join("\n");
+
+/**
+ * Casse les patterns de mentions Discord dans le texte (filet de sécurité post-modèle).
+ * @param {string} s
+ */
+function sanitizeAiMentionsForDiscord(s) {
+  let t = String(s || "");
+  t = t.replace(/<@!?(\d{5,22})>/g, "<@.$1>");
+  t = t.replace(/<@&(\d{5,22})>/g, "<@.&$1>");
+  t = t.replace(/<#(\d{5,22})>/g, "<#.$1>");
+  t = t.replace(/@everyone/gi, "@.everyone");
+  t = t.replace(/@here/gi, "@.here");
+  return t;
+}
 
 /** Clé Groq uniquement. `GROK_API_KEY` = tolérance si le nom a été confondu avec « Grok » (xAI) — préfère `GROQ_API_KEY`. */
 function getGroqApiKey() {
@@ -468,6 +496,7 @@ async function runGroqUserTurn(userPart, maxOutputTokensOverride, opts = {}) {
   if (emojiBit) {
     system = `${system}\n\n---\n${emojiBit}`;
   }
+  system = `${system}${DISCORD_MENTION_POLICY_APPENDIX}`;
   const models = getModelsToTry();
   let lastErr;
   for (let i = 0; i < models.length; i++) {
@@ -483,7 +512,7 @@ async function runGroqUserTurn(userPart, maxOutputTokensOverride, opts = {}) {
         e.code = "EMPTY";
         throw e;
       }
-      return text;
+      return sanitizeAiMentionsForDiscord(text);
     } catch (e) {
       lastErr = e;
       const canRetry = i < models.length - 1 && shouldTryNextModel(e);
@@ -514,12 +543,13 @@ async function generateGeminiDinguerie(userHint = "", guild = null) {
 /**
  * Réponse à un ping avec message utilisateur (jusqu’à ~2000 car. du message nettoyé).
  * @param {string} strippedMessage Texte sans mention du bot (peut être vide)
+ * @param {import("discord.js").Guild|null} [guild]
  */
-async function generateGeminiPingReply(strippedMessage = "") {
+async function generateGeminiPingReply(strippedMessage = "", guild = null) {
   const msg = String(strippedMessage || "").trim().slice(0, 2000);
   const userPart = msg
-    ? `L'utilisateur t'a mentionné sur Discord. Réponds de façon pertinente, en quelques phrases max, en respectant ton rôle (prompt système). Pas de préambule du type « en tant qu'IA ».\n\nMessage :\n${msg}`
-    : `L'utilisateur t'a mentionné sans autre texte. Réponds très court, dans ton style.`;
+    ? `L'utilisateur t'a mentionné sur Discord. Réponds de façon pertinente, en quelques phrases max, en respectant ton rôle (prompt système). Pas de préambule du type « en tant qu'IA ». Même s'il te demande des pings, applique la règle : aucune mention Discord.\n\nMessage :\n${msg}`
+    : `L'utilisateur t'a mentionné sans autre texte. Réponds très court, dans ton style. Aucune mention Discord.`;
   return runGroqUserTurn(
     userPart,
     Number(
@@ -527,7 +557,8 @@ async function generateGeminiPingReply(strippedMessage = "") {
         process.env.GROK_PING_MAX_TOKENS ||
         process.env.GEMINI_PING_MAX_TOKENS ||
         640
-    )
+    ),
+    { guild }
   );
 }
 
@@ -548,5 +579,6 @@ module.exports = {
   DEFAULT_GROQ_PROMPT_FILE,
   LEGACY_GEMINI_PROMPT_FILE,
   getActiveDefaultPromptPath,
-  buildGuildCustomEmojiPromptAppendix
+  buildGuildCustomEmojiPromptAppendix,
+  sanitizeAiMentionsForDiscord
 };
