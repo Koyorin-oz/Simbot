@@ -14,6 +14,6 @@ module.exports = {
       });
       return;
     }
-    await interaction.reply(buildMusicPanelPayload(interaction.user.id));
+    await interaction.reply(buildMusicPanelPayload(interaction.user.id, interaction.guildId));
   }
 };

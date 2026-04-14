@@ -154,6 +154,14 @@ async function runPlayQueryFlow(interaction, client, opts) {
   });
 }
 
+/** Met à jour l’embed du panneau musique sur le message porteur du bouton. */
+async function syncMusicPanelMessage(interaction, actorId) {
+  const payload = buildMusicPanelPayload(actorId, interaction.guildId);
+  if (interaction.message?.editable) {
+    await interaction.message.edit(payload).catch(() => null);
+  }
+}
+
 async function handleMusicPanelInteractions(client, interaction) {
   if (!musicService.isEnabled()) return false;
 
@@ -173,8 +181,32 @@ async function handleMusicPanelInteractions(client, interaction) {
     const actorId = interaction.user.id;
 
     if (p.action === "refresh") {
-      const payload = buildMusicPanelPayload(actorId);
+      const payload = buildMusicPanelPayload(actorId, interaction.guildId);
       await interaction.update(payload).catch(() => null);
+      return true;
+    }
+
+    if (p.action === "playtoggle") {
+      const paused = musicService.isGuildPlaybackPaused(interaction.guildId);
+      const r = paused
+        ? musicService.resumeGuild(interaction.guildId)
+        : musicService.pauseGuild(interaction.guildId);
+      if (r.error) {
+        await interaction.reply({ content: r.error, flags: MessageFlags.Ephemeral }).catch(() => null);
+        return true;
+      }
+      await interaction.deferUpdate().catch(() => null);
+      await syncMusicPanelMessage(interaction, actorId);
+      return true;
+    }
+
+    if (p.action === "clearqueue") {
+      musicService.clearQueueGuild(interaction.guildId);
+      await interaction.deferUpdate().catch(() => null);
+      await syncMusicPanelMessage(interaction, actorId);
+      await interaction
+        .followUp({ content: "File vidée (lecture en cours inchangée si elle tourne).", flags: MessageFlags.Ephemeral })
+        .catch(() => null);
       return true;
     }
 
@@ -203,64 +235,94 @@ async function handleMusicPanelInteractions(client, interaction) {
 
     if (p.action === "leave") {
       musicService.leaveGuild(interaction.guildId, client);
-      await interaction.reply({
-        content: "Bot deconnecte du vocal, file videe.",
-        flags: MessageFlags.Ephemeral
-      });
+      await interaction.deferUpdate().catch(() => null);
+      await syncMusicPanelMessage(interaction, actorId);
+      await interaction
+        .followUp({ content: "Bot déconnecté du vocal, file vidée.", flags: MessageFlags.Ephemeral })
+        .catch(() => null);
       return true;
     }
 
     if (p.action === "skip") {
       const r = musicService.skipGuild(interaction.guildId);
-      await interaction.reply({ content: r.error || "Skip.", flags: MessageFlags.Ephemeral });
+      if (r.error) {
+        await interaction.reply({ content: r.error, flags: MessageFlags.Ephemeral }).catch(() => null);
+        return true;
+      }
+      await interaction.deferUpdate().catch(() => null);
+      await syncMusicPanelMessage(interaction, actorId);
       return true;
     }
 
     if (p.action === "stop") {
       const r = musicService.stopGuild(interaction.guildId);
-      await interaction.reply({
-        content: r.error || "Stop — file videe.",
-        flags: MessageFlags.Ephemeral
-      });
+      if (r.error) {
+        await interaction.reply({ content: r.error, flags: MessageFlags.Ephemeral }).catch(() => null);
+        return true;
+      }
+      await interaction.deferUpdate().catch(() => null);
+      await syncMusicPanelMessage(interaction, actorId);
       return true;
     }
 
     if (p.action === "pause") {
       const r = musicService.pauseGuild(interaction.guildId);
-      await interaction.reply({ content: r.error || "Pause.", flags: MessageFlags.Ephemeral });
+      if (r.error) {
+        await interaction.reply({ content: r.error, flags: MessageFlags.Ephemeral }).catch(() => null);
+        return true;
+      }
+      await interaction.deferUpdate().catch(() => null);
+      await syncMusicPanelMessage(interaction, actorId);
       return true;
     }
 
     if (p.action === "resume") {
       const r = musicService.resumeGuild(interaction.guildId);
-      await interaction.reply({ content: r.error || "Lecture reprise.", flags: MessageFlags.Ephemeral });
+      if (r.error) {
+        await interaction.reply({ content: r.error, flags: MessageFlags.Ephemeral }).catch(() => null);
+        return true;
+      }
+      await interaction.deferUpdate().catch(() => null);
+      await syncMusicPanelMessage(interaction, actorId);
       return true;
     }
 
     if (p.action === "restart") {
       const r = await musicService.restartCurrentTrackGuild(interaction.guildId);
-      await interaction.reply({
-        content: r.error || "Morceau relance depuis le debut.",
-        flags: MessageFlags.Ephemeral
-      });
+      if (r.error) {
+        await interaction.reply({ content: r.error, flags: MessageFlags.Ephemeral }).catch(() => null);
+        return true;
+      }
+      await interaction.deferUpdate().catch(() => null);
+      await syncMusicPanelMessage(interaction, actorId);
       return true;
     }
 
     if (p.action === "voldown") {
       const r = musicService.nudgeGuildVolume(interaction.guildId, -musicService.VOLUME_NUDGE);
-      await interaction.reply({
-        content: r.error || `Volume : **${r.volume}%**.`,
-        flags: MessageFlags.Ephemeral
-      });
+      if (r.error) {
+        await interaction.reply({ content: r.error, flags: MessageFlags.Ephemeral }).catch(() => null);
+        return true;
+      }
+      await interaction.deferUpdate().catch(() => null);
+      await syncMusicPanelMessage(interaction, actorId);
+      await interaction
+        .followUp({ content: `Volume : **${r.volume}%**.`, flags: MessageFlags.Ephemeral })
+        .catch(() => null);
       return true;
     }
 
     if (p.action === "volup") {
       const r = musicService.nudgeGuildVolume(interaction.guildId, musicService.VOLUME_NUDGE);
-      await interaction.reply({
-        content: r.error || `Volume : **${r.volume}%**.`,
-        flags: MessageFlags.Ephemeral
-      });
+      if (r.error) {
+        await interaction.reply({ content: r.error, flags: MessageFlags.Ephemeral }).catch(() => null);
+        return true;
+      }
+      await interaction.deferUpdate().catch(() => null);
+      await syncMusicPanelMessage(interaction, actorId);
+      await interaction
+        .followUp({ content: `Volume : **${r.volume}%**.`, flags: MessageFlags.Ephemeral })
+        .catch(() => null);
       return true;
     }
 

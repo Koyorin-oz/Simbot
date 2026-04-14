@@ -5,6 +5,7 @@ const {
   ActionRowBuilder,
   AttachmentBuilder,
   PermissionFlagsBits,
+  PermissionsBitField,
   MessageFlags,
   EmbedBuilder,
   ButtonBuilder,
@@ -559,7 +560,61 @@ async function handlePrivateRoomInteractions(client, interaction) {
     if (prefix === "prv_refresh") {
       const member = await interaction.guild.members.fetch(ownerId).catch(() => interaction.member);
       const payload = await buildPanelPayload(client, client.prisma, member);
-      await interaction.update({ components: payload.components, flags: payload.flags }).catch(() => null);
+      await interaction
+        .update({
+          embeds: payload.embeds || [],
+          components: payload.components || []
+        })
+        .catch(() => null);
+      return true;
+    }
+
+    if (prefix === "prv_lock") {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const resolved = await resolveOwnerPrivateVoiceChannel(client, interaction.guild, ownerId);
+      if (!resolved.channel) {
+        await interaction.editReply({ content: resolved.error || "Pas de salon actif." });
+        return true;
+      }
+      const guild = interaction.guild;
+      const channel = resolved.channel;
+      const gOw = channel.permissionOverwrites.cache.get(guild.id);
+      const allow = new PermissionsBitField(gOw?.allow?.bitfield ?? 0n);
+      const deny = new PermissionsBitField(gOw?.deny?.bitfield ?? 0n);
+      deny.add(PermissionFlagsBits.Connect);
+      allow.remove(PermissionFlagsBits.Connect);
+      try {
+        await channel.permissionOverwrites.edit(guild.id, { allow, deny });
+        await interaction.editReply({
+          content:
+            "Salon **verrouillé** : les membres sans permission explicite ne peuvent plus rejoindre. Utilise **Déverr.** pour réappliquer tes listes / mode."
+        });
+      } catch (e) {
+        await interaction.editReply({ content: e?.message || "Impossible de modifier les permissions." });
+      }
+      return true;
+    }
+
+    if (prefix === "prv_unlock") {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const prefs = await loadPrefs(client.prisma, interaction.guildId, ownerId);
+      const member = await interaction.guild.members.fetch(ownerId).catch(() => interaction.member);
+      const resolved = await resolveOwnerPrivateVoiceChannel(client, interaction.guild, ownerId);
+      if (!resolved.channel) {
+        await interaction.editReply({ content: resolved.error || "Pas de salon actif." });
+        return true;
+      }
+      const userLimit = Number.isFinite(Number(prefs.defaultLimit)) ? Math.max(0, Math.min(99, Number(prefs.defaultLimit))) : 0;
+      const applied = await applyVoiceChannelSettings(client, client.prisma, member, resolved.channel.id, {
+        name: resolvePrivateRoomNameFromPrefs(member, prefs.defaultName),
+        limit: userLimit,
+        mode: normalizePrivateRoomMode(prefs.defaultMode),
+        blacklistIds: safeJsonParseArray(prefs.blacklistIds),
+        whitelistIds: safeJsonParseArray(prefs.whitelistIds)
+      });
+      await interaction.editReply({
+        content: applied.ok ? "Salon **déverrouillé** : permissions réappliquées selon tes préférences." : applied.error
+      });
       return true;
     }
 
@@ -604,7 +659,7 @@ async function handlePrivateRoomInteractions(client, interaction) {
           .catch(() => null);
         return true;
       }
-      const payload = buildMusicPanelPayload(interaction.user.id);
+      const payload = buildMusicPanelPayload(interaction.user.id, interaction.guildId);
       await interaction.reply(payload).catch((e) => console.warn("[PRV] music panel reply", e?.message || e));
       return true;
     }

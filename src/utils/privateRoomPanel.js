@@ -1,91 +1,113 @@
-const {
-  ContainerBuilder,
-  TextDisplayBuilder,
-  SeparatorBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle
-} = require("discord.js");
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
+const config = require("../config");
 
-const { V2_MSG, ACCENT_COLOR } = require("./componentsV2Panels");
+/** Gris anthracite (style BLZ). Surcharge : PRIVATE_ROOM_PANEL_COLOR (hex sans #). */
+function getPanelEmbedColor() {
+  const raw = String(process.env.PRIVATE_ROOM_PANEL_COLOR || "2b2d31").replace(/^#/, "");
+  const n = parseInt(raw, 16);
+  if (!Number.isNaN(n) && n >= 0 && n <= 0xffffff) return n;
+  return 0x2b2d31;
+}
 
 /**
+ * @param {string} customId
+ * @param {string} label
+ * @param {string} emoji
+ * @param {import("discord.js").ButtonStyle} style
+ */
+function panelButton(customId, label, emoji, style = ButtonStyle.Secondary) {
+  return new ButtonBuilder()
+    .setCustomId(customId)
+    .setStyle(style)
+    .setEmoji(emoji)
+    .setLabel(String(label).slice(0, 80));
+}
+
+/**
+ * Panneau salons vocaux privés — embed + grilles type BLZ (IDs boutons inchangés `prv_*` pour les handlers).
  * @param {boolean} hasChannel
- * @param {string} prefsSummary
- * @param {string} ownerId - ID Discord : suffixed aux customId pour que seul le proprietaire puisse cliquer
+ * @param {string} prefsSummaryText
+ * @param {string} ownerId
  * @param {{
  *   pingUser?: boolean,
  *   panelTextChannelId?: string | null,
  *   lobbyChannelId?: string | null,
  *   musicEnabled?: boolean
- * }} [opts] - si pingUser, mention au debut (obligatoire avec Components V2 : pas de `content` separe)
+ * }} [opts]
  */
-function buildPrivateRoomPanel(hasChannel, prefsSummary, ownerId, opts = {}) {
+function buildPrivateRoomPanel(hasChannel, prefsSummaryText, ownerId, opts = {}) {
   const id = String(ownerId);
-  const head = opts.pingUser ? `<@${id}>\n\n` : "";
-  const panelHint =
-    opts.panelTextChannelId && opts.lobbyChannelId
-      ? `Rejoins <#${opts.lobbyChannelId}> (**Creer votre salon**) : tu seras place dans ton vocal prive et le panneau sera dans le chat de cette voc.`
-      : "Rejoins le vocal **Creer votre salon** : tu seras place dans ton vocal prive et le panneau sera dans le chat de la voc.";
-  const lines = [
-    `${head}## Salons vocaux prives`,
-    panelHint,
-    "",
-    hasChannel
-      ? "Tu as un salon actif. Utilise **Configurer mon salon** pour appliquer nom, places, mode et listes sur ce vocal (sans en creer un autre)."
-      : "Utilise **Creer mon salon** pour ouvrir le formulaire (nom, places, mode open / listes).",
-    "",
-    prefsSummary || "",
-    "",
-    "*Le **proprietaire** du salon (mentionne) ou un **membre staff** (role autorise pour les vocaux prives / musique) peut utiliser tous les boutons, **MUSIQUE** y compris.*"
-  ].join("\n");
+  const color = getPanelEmbedColor();
+
+  const lobbyMention =
+    opts.lobbyChannelId && /^\d{17,22}$/.test(String(opts.lobbyChannelId))
+      ? `<#${opts.lobbyChannelId}>`
+      : "le lobby **Créer votre salon**";
+  const panelHint = opts.panelTextChannelId
+    ? `Tu peux aussi suivre le fil dans <#${opts.panelTextChannelId}>.`
+    : "";
+
+  const staffRoleId = String(config.music?.privateRoomStaffBypassRoleId || "").trim();
+  const staffHint =
+    staffRoleId && /^\d{17,22}$/.test(staffRoleId)
+      ? `Le rôle <@&${staffRoleId}> a les mêmes accès que le propriétaire.`
+      : "Un rôle staff peut être configuré pour bypasser les restrictions du panneau.";
+
+  const embed = new EmbedBuilder()
+    .setColor(color)
+    .setTitle("Panneau — salon vocal privé")
+    .setDescription(
+      [
+        opts.pingUser ? `<@${id}>\n` : "",
+        "Utilise cette interface pour **nom**, **limite de places**, **listes** d’accès et **verrouillage** du salon.",
+        "",
+        `**Étape 1 :** rejoins ${lobbyMention} pour créer ou retrouver ton vocal.`,
+        panelHint,
+        "",
+        hasChannel
+          ? "**Statut :** salon actif — les actions s’appliquent à ce vocal."
+          : "**Statut :** pas de salon mémorisé — passe par le lobby ou **Créer / Configurer**.",
+        "",
+        prefsSummaryText || "",
+        "",
+        `*${staffHint}*`
+      ]
+        .filter(Boolean)
+        .join("\n")
+    )
+    .setFooter({
+      text: "D’autres options (Discord) : clic droit sur le salon → Modifier le salon"
+    });
+
+  const secondary = ButtonStyle.Secondary;
+  const success = ButtonStyle.Success;
+  const primary = ButtonStyle.Primary;
 
   const row1 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`prv_create:${id}`)
-      .setLabel(hasChannel ? "Configurer mon salon" : "Creer mon salon")
-      .setStyle(ButtonStyle.Success)
-      .setDisabled(false),
-    new ButtonBuilder()
-      .setCustomId(`prv_rename:${id}`)
-      .setLabel("Renommer")
-      .setStyle(ButtonStyle.Primary)
-      .setDisabled(!hasChannel),
-    new ButtonBuilder()
-      .setCustomId(`prv_limit:${id}`)
-      .setLabel("Places max")
-      .setStyle(ButtonStyle.Primary)
-      .setDisabled(!hasChannel)
+    panelButton(`prv_rename:${id}`, "Renommer", "✏️", secondary),
+    panelButton(`prv_limit:${id}`, "Limite", "👥", secondary),
+    panelButton(`prv_lock:${id}`, "Verrouiller", "🛡️", secondary),
+    panelButton(`prv_unlock:${id}`, "Déverr.", "🔓", secondary),
+    panelButton(`prv_refresh:${id}`, "Rafraîchir", "🔄", secondary)
   );
 
   const row2 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`prv_bl:${id}`).setLabel("Liste noire").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`prv_wl:${id}`).setLabel("Liste blanche").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`prv_refresh:${id}`).setLabel("Rafraichir").setStyle(ButtonStyle.Secondary)
+    panelButton(`prv_bl:${id}`, "Liste noire", "🚫", secondary),
+    panelButton(`prv_wl:${id}`, "Liste blanche", "✅", secondary),
+    panelButton(`prv_create:${id}`, hasChannel ? "Configurer" : "Créer salon", "⚙️", success)
   );
 
-  const container = new ContainerBuilder()
-    .setAccentColor(ACCENT_COLOR)
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines))
-    .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-    .addActionRowComponents(row1)
-    .addActionRowComponents(row2);
+  const rows = [row1, row2];
 
   if (opts.musicEnabled) {
-    const musicHint =
-      "**Musique** : ouvre le meme panneau que `/music` — recherche, liens, playlist, file, volume, etc. " +
-      "Enregistre tes **playlists Spotify** via le bouton **Playlist Spotify** sur ce panneau.";
-    container
-      .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-      .addTextDisplayComponents(new TextDisplayBuilder().setContent(musicHint));
-
-    const rowMusic = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`prv_music_panel:${id}`).setLabel("MUSIQUE").setStyle(ButtonStyle.Primary)
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        panelButton(`prv_music_panel:${id}`, "Musique", "🎵", primary)
+      )
     );
-    container.addActionRowComponents(rowMusic);
   }
 
-  return { components: [container], ...V2_MSG };
+  return { embeds: [embed], components: rows };
 }
 
-module.exports = { buildPrivateRoomPanel };
+module.exports = { getPanelEmbedColor, buildPrivateRoomPanel };

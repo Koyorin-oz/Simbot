@@ -1265,6 +1265,24 @@ function skipGuild(guildId) {
   return { ok: true };
 }
 
+/** Vide la file sans couper la piste en cours (comportement type panneau BLZ). */
+function clearQueueGuild(guildId) {
+  const st = getState(guildId);
+  st.queue = [];
+  return { ok: true };
+}
+
+/** Pause effective (natif ou Lavalink). */
+function isGuildPlaybackPaused(guildId) {
+  const st = getState(guildId);
+  if (st.lavalinkPlayer?.track) {
+    return Boolean(st.lavalinkPlayer.paused);
+  }
+  if (!loadOk || !voiceMod || !st.player) return false;
+  const { AudioPlayerStatus } = voiceMod;
+  return st.player.state.status === AudioPlayerStatus.Paused;
+}
+
 function stopGuild(guildId) {
   const st = getState(guildId);
   st.queue = [];
@@ -1461,6 +1479,8 @@ module.exports = {
   leaveGuild,
   skipGuild,
   stopGuild,
+  clearQueueGuild,
+  isGuildPlaybackPaused,
   formatQueue,
   enqueueQuery,
   enqueueDirectTracks,
