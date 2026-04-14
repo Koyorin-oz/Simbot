@@ -104,7 +104,10 @@ function loadDeps() {
   }
 }
 
-/** @type {Map<string, { queue: Array<{ title: string, url: string, requesterId: string, spotifyCosplay?: boolean }>, volume: number, textChannelId: string | null, player: *, connection: *, lavalinkPlayer: import('shoukaku').Player | null, ytDlpProcess: import('child_process').ChildProcess | null, nowPlaying: { title: string, url: string, requesterId: string, spotifyCosplay?: boolean } | null }>} */
+const MAX_MUSIC_HISTORY = 35;
+const MAX_MUSIC_PANEL_MSGS = 15;
+
+/** @type {Map<string, { queue: Array<{ title: string, url: string, requesterId: string, spotifyCosplay?: boolean }>, history: Array<{ title: string, url: string, requesterId: string, spotifyCosplay?: boolean }>, panelMessages: Array<{ channelId: string, messageId: string }>, volume: number, textChannelId: string | null, player: *, connection: *, lavalinkPlayer: import('shoukaku').Player | null, ytDlpProcess: import('child_process').ChildProcess | null, nowPlaying: { title: string, url: string, requesterId: string, spotifyCosplay?: boolean } | null }>} */
 const guildStates = new Map();
 
 /** Morceau issu de Spotify (API/lien/recherche) : affichage « Spotify », audio YouTube. */
@@ -281,6 +284,8 @@ function getState(guildId) {
   if (!guildStates.has(id)) {
     guildStates.set(id, {
       queue: [],
+      history: [],
+      panelMessages: [],
       volume: 100,
       textChannelId: null,
       player: null,
@@ -291,6 +296,95 @@ function getState(guildId) {
     });
   }
   return guildStates.get(id);
+}
+
+function pushNowPlayingToHistory(st) {
+  if (!st?.nowPlaying?.url) return;
+  st.history.push({
+    title: st.nowPlaying.title,
+    url: st.nowPlaying.url,
+    requesterId: st.nowPlaying.requesterId || "0",
+    spotifyCosplay: Boolean(st.nowPlaying.spotifyCosplay)
+  });
+  while (st.history.length > MAX_MUSIC_HISTORY) st.history.shift();
+}
+
+function registerMusicPanelMessage(guildId, channelId, messageId) {
+  const st = getState(guildId);
+  if (!st.panelMessages) st.panelMessages = [];
+  st.panelMessages.push({ channelId: String(channelId), messageId: String(messageId) });
+  while (st.panelMessages.length > MAX_MUSIC_PANEL_MSGS) st.panelMessages.shift();
+}
+
+/**
+ * @param {import("discord.js").Client} client
+ * @param {string} guildId
+ * @param {{ skipChannelId?: string, skipMessageId?: string }} [opts]
+ */
+async function refreshRegisteredMusicPanels(client, guildId, opts = {}) {
+  const st = getState(guildId);
+  const list = [...(st.panelMessages || [])];
+  if (!list.length || !client) return;
+  let payload;
+  try {
+    const { buildMusicPanelPayload, buildBlzMusicSessionAdapter } = require("../utils/musicPanel");
+    payload = buildMusicPanelPayload(guildId, buildBlzMusicSessionAdapter(guildId));
+  } catch {
+    return;
+  }
+  const kept = [];
+  for (const r of list) {
+    if (opts.skipMessageId && r.messageId === opts.skipMessageId) {
+      kept.push(r);
+      continue;
+    }
+    try {
+      const ch = await client.channels.fetch(r.channelId).catch(() => null);
+      const msg = await ch?.messages?.fetch(r.messageId).catch(() => null);
+      if (msg?.editable) {
+        await msg.edit({ embeds: payload.embeds, components: payload.components });
+        kept.push(r);
+      }
+    } catch {
+      /* drop broken ref */
+    }
+  }
+  st.panelMessages = kept;
+}
+
+function previousGuild(guild) {
+  const st = getState(guild.id);
+  if (!st.history.length) return { error: "Pas de morceau précédent." };
+  const prev = st.history.pop();
+  if (st.nowPlaying?.url) {
+    st.queue.unshift({
+      title: st.nowPlaying.title,
+      url: st.nowPlaying.url,
+      requesterId: st.nowPlaying.requesterId || "0",
+      spotifyCosplay: Boolean(st.nowPlaying.spotifyCosplay)
+    });
+  }
+  st.queue.unshift({
+    title: prev.title,
+    url: prev.url,
+    requesterId: prev.requesterId || "0",
+    spotifyCosplay: Boolean(prev.spotifyCosplay)
+  });
+  st.nowPlaying = null;
+  if (st.lavalinkPlayer?.track) {
+    st.lavalinkPlayer.stopTrack().catch(() => null);
+    return { ok: true };
+  }
+  if (st.player) {
+    try {
+      st.player.stop(true);
+    } catch {
+      /* ignore */
+    }
+    return { ok: true };
+  }
+  playNext(guild).catch(() => null);
+  return { ok: true };
 }
 
 const VOLUME_MIN = 5;
@@ -459,9 +553,14 @@ function getVoiceForPrivatePanel(member, client, guildId, ownerId) {
  * Vocal enregistre comme salon prive (session bot) → retourne l’userId owner.
  */
 function getPrivateRoomOwnerIdForVoiceChannel(client, guildId, voiceChannelId) {
-  if (!client?.privateRoomSessions || !voiceChannelId) return null;
+  if (!voiceChannelId) return null;
   const g = String(guildId);
   const vc = String(voiceChannelId);
+  const byVoice = client.privateRoomByVoiceId?.get(vc);
+  if (byVoice && String(byVoice.guildId) === g && /^\d{17,22}$/.test(String(byVoice.ownerId || ""))) {
+    return String(byVoice.ownerId);
+  }
+  if (!client?.privateRoomSessions) return null;
   for (const [key, s] of client.privateRoomSessions.entries()) {
     if (!key.startsWith(`${g}:`)) continue;
     if (String(s?.voiceChannelId || "") !== vc) continue;
@@ -815,6 +914,7 @@ async function playNextLavalink(guild, failDepth = 0) {
   const st = getState(guild.id);
   const player = st.lavalinkPlayer;
   if (!player) return;
+  pushNowPlayingToHistory(st);
   const next = st.queue.shift();
   if (!next) {
     st.nowPlaying = null;
@@ -877,6 +977,7 @@ async function playNext(guild, failDepth = 0) {
   }
   if (!loadOk || !voiceMod || !play || !ytdl) return;
   if (!st.player || !st.connection) return;
+  pushNowPlayingToHistory(st);
   const next = st.queue.shift();
   killActiveYtDlp(st);
   if (!next) {
@@ -1238,6 +1339,8 @@ function leaveGuild(guildId, client = null) {
   }
   if (st) {
     st.queue = [];
+    st.history = [];
+    st.panelMessages = [];
     st.connection = null;
     st.nowPlaying = null;
   }
@@ -1286,6 +1389,7 @@ function isGuildPlaybackPaused(guildId) {
 function stopGuild(guildId) {
   const st = getState(guildId);
   st.queue = [];
+  st.history = [];
   st.nowPlaying = null;
   killActiveYtDlp(st);
   if (st.lavalinkPlayer) {
@@ -1481,6 +1585,9 @@ module.exports = {
   stopGuild,
   clearQueueGuild,
   isGuildPlaybackPaused,
+  previousGuild,
+  registerMusicPanelMessage,
+  refreshRegisteredMusicPanels,
   formatQueue,
   enqueueQuery,
   enqueueDirectTracks,

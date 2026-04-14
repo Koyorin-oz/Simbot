@@ -50,7 +50,8 @@ const {
 } = require("../services/suggestionService");
 const musicService = require("../services/musicService");
 const { handleMusicPanelInteractions } = require("./musicPanelInteractions");
-const { buildMusicPanelPayload } = require("../utils/musicPanel");
+const { buildMusicPanelPayload, buildBlzMusicSessionAdapter } = require("../utils/musicPanel");
+const voiceRoomPanelBLZInteractions = require("./voiceRoomPanelBLZInteractions");
 
 function parsePrvOwner(customId) {
   const m = String(customId).match(/^(.+):(\d{17,20})$/);
@@ -560,12 +561,13 @@ async function handlePrivateRoomInteractions(client, interaction) {
     if (prefix === "prv_refresh") {
       const member = await interaction.guild.members.fetch(ownerId).catch(() => interaction.member);
       const payload = await buildPanelPayload(client, client.prisma, member);
-      await interaction
-        .update({
-          embeds: payload.embeds || [],
-          components: payload.components || []
-        })
-        .catch(() => null);
+      const upd = {
+        embeds: payload.embeds || [],
+        components: payload.components || []
+      };
+      if (payload.content != null) upd.content = payload.content;
+      if (payload.allowedMentions) upd.allowedMentions = payload.allowedMentions;
+      await interaction.update(upd).catch(() => null);
       return true;
     }
 
@@ -659,8 +661,13 @@ async function handlePrivateRoomInteractions(client, interaction) {
           .catch(() => null);
         return true;
       }
-      const payload = buildMusicPanelPayload(interaction.user.id, interaction.guildId);
-      await interaction.reply(payload).catch((e) => console.warn("[PRV] music panel reply", e?.message || e));
+      const payload = buildMusicPanelPayload(
+        interaction.guildId,
+        buildBlzMusicSessionAdapter(interaction.guildId)
+      );
+      await interaction
+        .reply({ ...payload, flags: MessageFlags.Ephemeral })
+        .catch((e) => console.warn("[PRV] music panel reply", e?.message || e));
       return true;
     }
 
@@ -885,6 +892,19 @@ async function handleSuggestionInteractions(client, interaction) {
 async function routeFeatureInteractions(client, interaction) {
   if (await handleWelcomeInteractions(client, interaction)) return true;
   if (await handleTicketInteractions(client, interaction)) return true;
+
+  if (interaction.isButton()) {
+    if (interaction.customId.startsWith("pvropen:")) {
+      if (await voiceRoomPanelBLZInteractions.handleVocPanelOpenBLZButton(interaction)) return true;
+    }
+    if (interaction.customId.startsWith("pvr:")) {
+      if (await voiceRoomPanelBLZInteractions.handleVoiceRoomPanelBLZButton(interaction)) return true;
+    }
+  }
+  if (interaction.isModalSubmit() && interaction.customId.startsWith("pvrm:")) {
+    if (await voiceRoomPanelBLZInteractions.handleVoiceRoomPanelBLZModal(interaction)) return true;
+  }
+
   if (await handlePrivateRoomInteractions(client, interaction)) return true;
   if (await handleMusicPanelInteractions(client, interaction)) return true;
   if (await handleSuggestionInteractions(client, interaction)) return true;

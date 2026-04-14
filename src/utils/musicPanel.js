@@ -1,8 +1,12 @@
+/**
+ * Panneau musique — identique BLZbot (titres, footer, boutons, préfixes blzm: / blzmm: / blzmpick:).
+ */
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const musicService = require("../services/musicService");
 
-/** Accent panneau musique (bleu Discord, aligné BLZ). */
-const MUSIC_PANEL_COLOR = 0x5865f2;
+function btnId(guildId, action) {
+  return `blzm:${action}:${guildId}`;
+}
 
 function truncate(s, n) {
   const t = String(s || "");
@@ -10,76 +14,73 @@ function truncate(s, n) {
   return `${t.slice(0, n - 1)}…`;
 }
 
-function formatQueueLine(t) {
-  if (!t) return "";
-  if (typeof t.spotifyCosplay === "boolean" && t.spotifyCosplay) return `🟢 Spotify (YT) — ${t.title}`;
-  return t.title || "";
-}
-
 /**
- * Panneau musique — mise en page type BLZ (embed + transport + options Carmina).
- * @param {string} userId
+ * Objet session attendu par buildMusicPanelPayload (même forme que BLZ).
  * @param {string} guildId
  */
-function buildMusicPanelPayload(userId, guildId) {
-  const id = String(userId);
-  const gid = String(guildId || "");
-  const st = musicService.getState(gid);
-  const paused = gid ? musicService.isGuildPlaybackPaused(gid) : false;
+function buildBlzMusicSessionAdapter(guildId) {
+  const st = musicService.getState(guildId);
+  return {
+    queue: (st.queue || []).map((t) => ({ title: t.title })),
+    current: st.nowPlaying ? { title: st.nowPlaying.title } : null,
+    isPaused: () => musicService.isGuildPlaybackPaused(guildId)
+  };
+}
 
-  const qPreview = st.queue.slice(0, 4).map((t, i) => `${i + 1}. ${truncate(formatQueueLine(t), 60)}`);
-  const more = st.queue.length > 4 ? `\n*+${st.queue.length - 4} dans la file*` : "";
+/** @param {string} guildId @param {{ queue: { title: string }[], current: { title: string } | null, isPaused: () => boolean }} session */
+function buildMusicPanelPayload(guildId, session) {
+  const qPreview = session.queue.slice(0, 4).map((t, i) => `${i + 1}. ${truncate(t.title, 60)}`);
+  const more = session.queue.length > 4 ? `\n*+${session.queue.length - 4} dans la file*` : "";
 
   let body = "";
-  if (st.nowPlaying) {
-    body = `**En cours**\n${truncate(formatQueueLine(st.nowPlaying), 90)}`;
-    if (paused) body += "\n\n*⏸ En pause*";
+  if (session.current) {
+    body = `**En cours**\n${truncate(session.current.title, 90)}`;
+    if (session.isPaused()) {
+      body += "\n\n*⏸ En pause*";
+    }
   } else {
-    body = "*Aucune lecture — **Ajouter** (recherche / lien) ou connecte-toi au vocal.*";
+    body = "*Aucune lecture — bouton **Ajouter** ou `/musique play`.*";
   }
 
   if (qPreview.length) {
     body += `\n\n**File**\n${qPreview.join("\n")}${more}`;
   }
 
-  const vol = st.volume ?? 100;
-
   const embed = new EmbedBuilder()
-    .setColor(MUSIC_PANEL_COLOR)
-    .setTitle("Musique")
+    .setColor(0x5865f2)
+    .setTitle("Musique 🎵")
     .setDescription(body)
     .setFooter({
-      text: `Volume ~${vol}% · Transport : Début · Pause/Play · Suivant · File · Stop · puis options (lien, Spotify, vocal…)`
+      text: "Transport : Précédent · Pause / Play · Suivant · File · Stop · Ajouter · Vider file · Playlist"
     });
 
   const secondary = ButtonStyle.Secondary;
   const danger = ButtonStyle.Danger;
-  const success = ButtonStyle.Success;
-  const primary = ButtonStyle.Primary;
+  const paused = session.isPaused();
 
-  const row1 = new ActionRowBuilder().addComponents(
+  const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(`music_pb:restart:${id}`)
+      .setCustomId(btnId(guildId, "prev"))
       .setStyle(secondary)
-      .setLabel("Début")
+      .setLabel("Précédent")
       .setEmoji("⏮️"),
     new ButtonBuilder()
-      .setCustomId(`music_pb:playtoggle:${id}`)
-      .setStyle(paused ? success : primary)
+      .setCustomId(btnId(guildId, paused ? "resume" : "pause"))
+      .setStyle(paused ? ButtonStyle.Success : ButtonStyle.Primary)
       .setLabel(paused ? "Play" : "Pause")
       .setEmoji(paused ? "▶️" : "⏸️"),
     new ButtonBuilder()
-      .setCustomId(`music_pb:skip:${id}`)
+      .setCustomId(btnId(guildId, "skip"))
       .setStyle(secondary)
       .setLabel("Suivant")
       .setEmoji("⏭️"),
     new ButtonBuilder()
-      .setCustomId(`music_pb:queue:${id}`)
+      .setCustomId(btnId(guildId, "queue"))
       .setStyle(secondary)
       .setLabel("File")
       .setEmoji("📋"),
     new ButtonBuilder()
-      .setCustomId(`music_pb:stop:${id}`)
+      .setCustomId(btnId(guildId, "stop"))
       .setStyle(danger)
       .setLabel("Stop")
       .setEmoji("⏹️")
@@ -87,69 +88,60 @@ function buildMusicPanelPayload(userId, guildId) {
 
   const row2 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(`music_pb:search:${id}`)
-      .setStyle(success)
+      .setCustomId(btnId(guildId, "playprompt"))
+      .setStyle(ButtonStyle.Success)
       .setLabel("Ajouter")
       .setEmoji("➕"),
     new ButtonBuilder()
-      .setCustomId(`music_pb:clearqueue:${id}`)
+      .setCustomId(btnId(guildId, "clear"))
       .setStyle(secondary)
       .setLabel("Vider file")
       .setEmoji("🧹"),
     new ButtonBuilder()
-      .setCustomId(`music_pb:playlist:${id}`)
-      .setStyle(primary)
+      .setCustomId(btnId(guildId, "playlist"))
+      .setStyle(ButtonStyle.Primary)
       .setLabel("Playlist")
-      .setEmoji("📑")
+      .setEmoji("🎵")
   );
 
-  const row3 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`music_pb:link:${id}`)
-      .setStyle(secondary)
-      .setLabel("Coller lien")
-      .setEmoji("🔗"),
-    new ButtonBuilder()
-      .setCustomId(`music_pb:hist:${id}`)
-      .setStyle(secondary)
-      .setLabel("Historique")
-      .setEmoji("📜"),
-    new ButtonBuilder()
-      .setCustomId(`music_pb:spotifypl:${id}`)
-      .setStyle(success)
-      .setLabel("Spotify")
-      .setEmoji("🎵"),
-    new ButtonBuilder()
-      .setCustomId(`music_pb:join:${id}`)
-      .setStyle(primary)
-      .setLabel("Rejoindre voc")
-      .setEmoji("🔊"),
-    new ButtonBuilder()
-      .setCustomId(`music_pb:leave:${id}`)
-      .setStyle(danger)
-      .setLabel("Bot quitte")
-      .setEmoji("🚪")
-  );
-
-  const row4 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`music_pb:voldown:${id}`)
-      .setStyle(secondary)
-      .setLabel("Son -")
-      .setEmoji("🔉"),
-    new ButtonBuilder()
-      .setCustomId(`music_pb:volup:${id}`)
-      .setStyle(secondary)
-      .setLabel("Son +")
-      .setEmoji("🔊"),
-    new ButtonBuilder()
-      .setCustomId(`music_pb:refresh:${id}`)
-      .setStyle(secondary)
-      .setLabel("Rafraîchir")
-      .setEmoji("🔄")
-  );
-
-  return { embeds: [embed], components: [row1, row2, row3, row4] };
+  return { embeds: [embed], components: [row, row2] };
 }
 
-module.exports = { buildMusicPanelPayload, MUSIC_PANEL_COLOR };
+function parseMusicButtonId(customId) {
+  if (!customId.startsWith("blzm:")) return null;
+  const parts = customId.split(":");
+  if (parts.length !== 3) return null;
+  const [, action, guildId] = parts;
+  if (!/^\d{17,22}$/.test(guildId)) return null;
+  const allowed = new Set([
+    "prev",
+    "pause",
+    "resume",
+    "skip",
+    "queue",
+    "stop",
+    "playprompt",
+    "clear",
+    "playlist"
+  ]);
+  if (!allowed.has(action)) return null;
+  return { action, guildId };
+}
+
+function parseMusicSelectId(customId) {
+  if (!customId.startsWith("blzmpick:")) return null;
+  const parts = customId.split(":");
+  if (parts.length !== 3) return null;
+  const [, guildId, userId] = parts;
+  if (!/^\d{17,22}$/.test(guildId) || !/^\d{17,22}$/.test(userId)) return null;
+  return { guildId, userId };
+}
+
+module.exports = {
+  buildMusicPanelPayload,
+  buildBlzMusicSessionAdapter,
+  parseMusicButtonId,
+  parseMusicSelectId,
+  btnId,
+  truncate
+};

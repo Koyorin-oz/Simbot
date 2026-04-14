@@ -11,7 +11,8 @@ const {
   ButtonBuilder,
   ButtonStyle
 } = require("discord.js");
-const { buildMusicPanelPayload } = require("../utils/musicPanel");
+const { buildMusicPanelPayload, buildBlzMusicSessionAdapter } = require("../utils/musicPanel");
+const { routeBlzMusicInteractions } = require("./musicBlzPanelInteractions");
 const musicService = require("../services/musicService");
 const musicPlaylist = require("../services/musicPlaylistService");
 const {
@@ -154,16 +155,23 @@ async function runPlayQueryFlow(interaction, client, opts) {
   });
 }
 
-/** Met à jour l’embed du panneau musique sur le message porteur du bouton. */
-async function syncMusicPanelMessage(interaction, actorId) {
-  const payload = buildMusicPanelPayload(actorId, interaction.guildId);
+/** Met à jour les panneaux musique (format BLZ) sur le message cliqué + copies enregistrées. */
+async function syncMusicPanelMessage(interaction, guildId) {
+  const gid = String(guildId || interaction.guildId || "");
+  if (!gid) return;
+  const payload = buildMusicPanelPayload(gid, buildBlzMusicSessionAdapter(gid));
   if (interaction.message?.editable) {
     await interaction.message.edit(payload).catch(() => null);
   }
+  await musicService.refreshRegisteredMusicPanels(interaction.client, gid, {
+    skipMessageId: interaction.message?.id
+  });
 }
 
 async function handleMusicPanelInteractions(client, interaction) {
   if (!musicService.isEnabled()) return false;
+
+  if (await routeBlzMusicInteractions(client, interaction)) return true;
 
   if (interaction.isButton() && interaction.customId.startsWith("music_pb:")) {
     const p = parseMusicButton(interaction.customId);
@@ -181,7 +189,10 @@ async function handleMusicPanelInteractions(client, interaction) {
     const actorId = interaction.user.id;
 
     if (p.action === "refresh") {
-      const payload = buildMusicPanelPayload(actorId, interaction.guildId);
+      const payload = buildMusicPanelPayload(
+        interaction.guildId,
+        buildBlzMusicSessionAdapter(interaction.guildId)
+      );
       await interaction.update(payload).catch(() => null);
       return true;
     }
@@ -196,14 +207,14 @@ async function handleMusicPanelInteractions(client, interaction) {
         return true;
       }
       await interaction.deferUpdate().catch(() => null);
-      await syncMusicPanelMessage(interaction, actorId);
+      await syncMusicPanelMessage(interaction, interaction.guildId);
       return true;
     }
 
     if (p.action === "clearqueue") {
       musicService.clearQueueGuild(interaction.guildId);
       await interaction.deferUpdate().catch(() => null);
-      await syncMusicPanelMessage(interaction, actorId);
+      await syncMusicPanelMessage(interaction, interaction.guildId);
       await interaction
         .followUp({ content: "File vidée (lecture en cours inchangée si elle tourne).", flags: MessageFlags.Ephemeral })
         .catch(() => null);
@@ -236,7 +247,7 @@ async function handleMusicPanelInteractions(client, interaction) {
     if (p.action === "leave") {
       musicService.leaveGuild(interaction.guildId, client);
       await interaction.deferUpdate().catch(() => null);
-      await syncMusicPanelMessage(interaction, actorId);
+      await syncMusicPanelMessage(interaction, interaction.guildId);
       await interaction
         .followUp({ content: "Bot déconnecté du vocal, file vidée.", flags: MessageFlags.Ephemeral })
         .catch(() => null);
@@ -250,7 +261,7 @@ async function handleMusicPanelInteractions(client, interaction) {
         return true;
       }
       await interaction.deferUpdate().catch(() => null);
-      await syncMusicPanelMessage(interaction, actorId);
+      await syncMusicPanelMessage(interaction, interaction.guildId);
       return true;
     }
 
@@ -261,7 +272,7 @@ async function handleMusicPanelInteractions(client, interaction) {
         return true;
       }
       await interaction.deferUpdate().catch(() => null);
-      await syncMusicPanelMessage(interaction, actorId);
+      await syncMusicPanelMessage(interaction, interaction.guildId);
       return true;
     }
 
@@ -272,7 +283,7 @@ async function handleMusicPanelInteractions(client, interaction) {
         return true;
       }
       await interaction.deferUpdate().catch(() => null);
-      await syncMusicPanelMessage(interaction, actorId);
+      await syncMusicPanelMessage(interaction, interaction.guildId);
       return true;
     }
 
@@ -283,7 +294,7 @@ async function handleMusicPanelInteractions(client, interaction) {
         return true;
       }
       await interaction.deferUpdate().catch(() => null);
-      await syncMusicPanelMessage(interaction, actorId);
+      await syncMusicPanelMessage(interaction, interaction.guildId);
       return true;
     }
 
@@ -294,7 +305,7 @@ async function handleMusicPanelInteractions(client, interaction) {
         return true;
       }
       await interaction.deferUpdate().catch(() => null);
-      await syncMusicPanelMessage(interaction, actorId);
+      await syncMusicPanelMessage(interaction, interaction.guildId);
       return true;
     }
 
@@ -305,7 +316,7 @@ async function handleMusicPanelInteractions(client, interaction) {
         return true;
       }
       await interaction.deferUpdate().catch(() => null);
-      await syncMusicPanelMessage(interaction, actorId);
+      await syncMusicPanelMessage(interaction, interaction.guildId);
       await interaction
         .followUp({ content: `Volume : **${r.volume}%**.`, flags: MessageFlags.Ephemeral })
         .catch(() => null);
@@ -319,7 +330,7 @@ async function handleMusicPanelInteractions(client, interaction) {
         return true;
       }
       await interaction.deferUpdate().catch(() => null);
-      await syncMusicPanelMessage(interaction, actorId);
+      await syncMusicPanelMessage(interaction, interaction.guildId);
       await interaction
         .followUp({ content: `Volume : **${r.volume}%**.`, flags: MessageFlags.Ephemeral })
         .catch(() => null);

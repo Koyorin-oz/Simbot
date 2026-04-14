@@ -291,7 +291,8 @@ module.exports = {
         (interaction.customId === "automod:del" ||
           interaction.customId.startsWith("music_pick:") ||
           interaction.customId.startsWith("music_hsel:") ||
-          interaction.customId.startsWith("music_plpick:")))
+          interaction.customId.startsWith("music_plpick:") ||
+          interaction.customId.startsWith("blzmpick:")))
     ) {
       if (isFrozen()) {
         if (!interaction.replied && !interaction.deferred) {

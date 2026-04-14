@@ -1,6 +1,6 @@
 const { ChannelType, PermissionFlagsBits } = require("discord.js");
 const config = require("../config");
-const { buildPrivateRoomPanel } = require("../utils/privateRoomPanel");
+const { buildPrivateVoicePanelPayload, buildVocPanelOpenerPayload } = require("../utils/voiceRoomPanelBLZ");
 
 function sessionKey(guildId, userId) {
   return `${guildId}:${userId}`;
@@ -86,24 +86,49 @@ async function getOrInitSession(client, guildId, userId) {
   return s;
 }
 
-async function buildPanelPayload(client, prisma, member, options = {}) {
-  const prefs = await loadPrefs(prisma, member.guild.id, member.id);
-  const s = await getOrInitSession(client, member.guild.id, member.id);
-  let has = false;
-  if (s.voiceChannelId) {
-    const ch =
-      member.guild.channels.cache.get(s.voiceChannelId) ||
-      (await member.guild.channels.fetch(s.voiceChannelId).catch(() => null));
-    has = Boolean(ch);
-    if (!has) s.voiceChannelId = null;
-  }
-  const pr = config.privateRoom;
-  return buildPrivateRoomPanel(has, prefsSummary(prefs), member.id, {
-    pingUser: Boolean(options.pingUser),
-    panelTextChannelId: pr?.panelTextChannelId || null,
-    lobbyChannelId: pr?.lobbyChannelId || null,
-    musicEnabled: Boolean(config.music?.enabled)
+function ensurePrivateRoomByVoice(client) {
+  if (!client.privateRoomByVoiceId) client.privateRoomByVoiceId = new Map();
+  return client.privateRoomByVoiceId;
+}
+
+function registerPrivateRoomVoice(client, guildId, ownerId, voiceChannelId) {
+  ensurePrivateRoomByVoice(client).set(String(voiceChannelId), {
+    ownerId: String(ownerId),
+    guildId: String(guildId)
   });
+}
+
+function unregisterPrivateRoomVoice(client, voiceChannelId) {
+  client.privateRoomByVoiceId?.delete(String(voiceChannelId));
+}
+
+function getPrivateRoomVoiceMeta(client, voiceChannelId) {
+  return client.privateRoomByVoiceId?.get(String(voiceChannelId)) || null;
+}
+
+/** Panneau BLZ : vocal complet si session connue, sinon message « Ouvrir mon panneau ». */
+async function buildPanelPayload(client, prisma, member, options = {}) {
+  await loadPrefs(prisma, member.guild.id, member.id);
+  const s = await getOrInitSession(client, member.guild.id, member.id);
+  let vcId = s.voiceChannelId;
+  if (vcId) {
+    const ch =
+      member.guild.channels.cache.get(vcId) ||
+      (await member.guild.channels.fetch(vcId).catch(() => null));
+    if (!ch?.isVoiceBased?.()) {
+      vcId = null;
+      s.voiceChannelId = null;
+    }
+  }
+  const ping = options.pingUser ? `<@${member.id}>` : undefined;
+  const base =
+    ping != null
+      ? { content: ping, allowedMentions: { users: [member.id] } }
+      : {};
+  if (vcId) {
+    return { ...base, ...buildPrivateVoicePanelPayload(vcId, "restricted") };
+  }
+  return { ...base, ...buildVocPanelOpenerPayload(null) };
 }
 
 /**
@@ -159,16 +184,35 @@ function buildPrivateVoiceOverwrites(guild, member, mode, blacklistIds, whitelis
   return overwrites;
 }
 
+async function postBlzMusicPanelInVoice(client, member, voiceChannel) {
+  const musicService = require("./musicService");
+  if (!musicService.isEnabled()) return;
+  if (!voiceChannel?.isVoiceBased?.() || typeof voiceChannel.send !== "function") return;
+  const { buildMusicPanelPayload, buildBlzMusicSessionAdapter } = require("../utils/musicPanel");
+  const gid = member.guild.id;
+  const payload = {
+    content: `<@${member.id}>`,
+    allowedMentions: { users: [member.id] },
+    ...buildMusicPanelPayload(gid, buildBlzMusicSessionAdapter(gid))
+  };
+  const msg = await voiceChannel.send(payload).catch(() => null);
+  if (msg?.id) musicService.registerMusicPanelMessage(gid, msg.channelId, msg.id);
+}
+
 async function sendPanelToOwnerChannel(client, prisma, member, channel, pr) {
-  const payload = await buildPanelPayload(client, prisma, member, { pingUser: true });
+  registerPrivateRoomVoice(client, member.guild.id, member.id, channel.id);
   const sendOpts = {
-    ...payload,
-    allowedMentions: { users: [member.id] }
+    content: `<@${member.id}>`,
+    allowedMentions: { users: [member.id] },
+    ...buildPrivateVoicePanelPayload(channel.id, "restricted")
   };
 
   if (channel?.isVoiceBased?.() && typeof channel.send === "function") {
     const ok = await channel.send(sendOpts).then(() => true).catch(() => false);
-    if (ok) return true;
+    if (ok) {
+      await postBlzMusicPanelInVoice(client, member, channel).catch(() => null);
+      return true;
+    }
   }
 
   if (pr?.panelTextChannelId) {
@@ -228,6 +272,7 @@ async function applyVoiceChannelSettings(client, prisma, member, channelId, { na
   const key = sessionKey(guild.id, member.id);
   if (!client.privateRoomSessions) client.privateRoomSessions = new Map();
   client.privateRoomSessions.set(key, { voiceChannelId: channel.id });
+  registerPrivateRoomVoice(client, guild.id, member.id, channel.id);
 
   return { ok: true, channel };
 }
@@ -265,6 +310,7 @@ async function createTempVoice(client, prisma, member, { name, limit, mode, blac
   const key = sessionKey(guild.id, member.id);
   if (!client.privateRoomSessions) client.privateRoomSessions = new Map();
   client.privateRoomSessions.set(key, { voiceChannelId: channel.id });
+  registerPrivateRoomVoice(client, guild.id, member.id, channel.id);
 
   await savePrefs(prisma, guild.id, member.id, {
     defaultName: resolvedName,
@@ -326,6 +372,7 @@ async function deleteIfOwnerEmpty(client, channel) {
   if (!entry) return;
   const humans = channel.members.filter((m) => !m.user.bot).size;
   if (humans > 0) return;
+  unregisterPrivateRoomVoice(client, channel.id);
   await channel.delete("Salon vocal prive vide").catch(() => null);
   client.privateRoomSessions.set(entry[0], { voiceChannelId: null });
 }
@@ -402,6 +449,9 @@ module.exports = {
   savePrefs,
   prefsSummary,
   getOrInitSession,
+  registerPrivateRoomVoice,
+  unregisterPrivateRoomVoice,
+  getPrivateRoomVoiceMeta,
   buildPanelPayload,
   createTempVoice,
   applyVoiceChannelSettings,
