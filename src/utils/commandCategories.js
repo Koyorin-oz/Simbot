@@ -29,7 +29,8 @@ const ADMIN_COMMANDS = new Set([
   "dinguerie",
   "verification",
   "verification-telephone",
-  "desactiver"
+  "desactiver",
+  "del-dm-all"
 ]);
 const MODERATION_COMMANDS = new Set([
   "bannir",
