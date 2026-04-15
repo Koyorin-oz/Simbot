@@ -1,4 +1,4 @@
-const { EmbedBuilder, PermissionFlagsBits } = require("discord.js");
+const { EmbedBuilder, PermissionFlagsBits, AuditLogEvent } = require("discord.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const config = require("../config");
@@ -9,6 +9,67 @@ function truncate(str, max = 900) {
   const s = String(str ?? "");
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
+
+/** @type {Map<string, number>} */
+const bulkSuppressUntil = new Map();
+/** @type {Map<string, number>} */
+const recentDeletionLog = new Map();
+
+const BULK_SUPPRESS_MS = 25_000;
+const DEDUP_LOG_MS = 90_000;
+const DELETE_BATCH_MS = 1_350;
+const PRUNE_EVERY = 500;
+
+function pruneMapByAge(map, maxAgeMs) {
+  const now = Date.now();
+  if (map.size < PRUNE_EVERY) return;
+  for (const [k, t] of map) {
+    if (now - t > maxAgeMs) map.delete(k);
+  }
+}
+
+/**
+ * Appelé au début de messageDeleteBulk : si l'API émet aussi des messageDelete,
+ * on évite de poster 1 log par message en plus du récap bulk.
+ * @param {string[]} messageIds
+ */
+function registerBulkSuppressionIds(messageIds) {
+  const until = Date.now() + BULK_SUPPRESS_MS;
+  for (const id of messageIds) {
+    if (id) bulkSuppressUntil.set(id, until);
+  }
+  pruneMapByAge(bulkSuppressUntil, BULK_SUPPRESS_MS * 2);
+}
+
+function isBulkSuppressed(messageId) {
+  const until = bulkSuppressUntil.get(messageId);
+  if (!until) return false;
+  if (Date.now() > until) {
+    bulkSuppressUntil.delete(messageId);
+    return false;
+  }
+  return true;
+}
+
+function markDeletionLogged(messageId) {
+  recentDeletionLog.set(messageId, Date.now());
+  pruneMapByAge(recentDeletionLog, DEDUP_LOG_MS * 2);
+}
+
+function isDuplicateDeletionLog(messageId) {
+  const t = recentDeletionLog.get(messageId);
+  if (!t) return false;
+  if (Date.now() - t > DEDUP_LOG_MS) {
+    recentDeletionLog.delete(messageId);
+    return false;
+  }
+  return true;
+}
+
+/** @typedef {{ messageId: string, authorTag: string, authorId: string, snap: string, channelId: string }} DeleteQueueItem */
+
+/** @type {Map<string, { guild: import("discord.js").Guild, items: DeleteQueueItem[], timer: NodeJS.Timeout | null }>} */
+const pendingDeletesByChannel = new Map();
 
 async function sendModLog(guild, embed) {
   const id = resolveModLogChannelId(guild?.id);
@@ -46,12 +107,10 @@ async function sendModLog(guild, embed) {
 function resolveModLogChannelId(guildId) {
   if (!guildId) return config.modLog?.channelId || "";
 
-  // Priorite absolue pour le serveur principal final.
   if (guildId === realServerIds?.guildId) {
     return String(realServerIds?.channels?.modLogChannelId || "").trim() || config.modLog?.channelId || "";
   }
 
-  // Sinon, essaie l'ID de setup par serveur, puis fallback config.
   try {
     const p = path.join(__dirname, "..", "data", "channelSetup.json");
     if (fs.existsSync(p)) {
@@ -70,26 +129,181 @@ function baseEmbed(title, color = 0x2b2d31) {
 }
 
 /**
- * @param {import("discord.js").Message | import("discord.js").PartialMessage} message
+ * Lien vers le salon uniquement : l’ancre `.../channel/messageId` sur un message supprimé
+ * fait souvent ouvrir l’historique au mauvais endroit côté client Discord.
+ * @param {string} guildId
+ * @param {string} channelId
  */
-async function logMessageDeleted(message) {
-  if (!message.guild) return;
-  if (message.author?.bot) return;
-  const guild = message.guild;
-  const snap = buildMessageSnapshot(message);
-  const author = message.author;
-  const authorLine = author
+function channelJumpUrl(guildId, channelId) {
+  return `https://discord.com/channels/${guildId}/${channelId}`;
+}
+
+/**
+ * @param {import("discord.js").Guild} guild
+ * @param {string} channelId
+ * @param {DeleteQueueItem[]} items
+ */
+async function tryResolveDeleteExecutor(guild, channelId, items) {
+  const me = guild.members.me;
+  if (!me?.permissions?.has(PermissionFlagsBits.ViewAuditLog)) return null;
+
+  const logs = await guild.fetchAuditLogs({ limit: 18 }).catch(() => null);
+  if (!logs?.entries?.size) return null;
+
+  const now = Date.now();
+  const maxAge = 14_000;
+  const sorted = [...logs.entries.values()].sort((a, b) => b.createdTimestamp - a.createdTimestamp);
+
+  if (items.length > 1) {
+    for (const entry of sorted) {
+      if (now - entry.createdTimestamp > maxAge) break;
+      if (entry.action !== AuditLogEvent.MessageBulkDelete) continue;
+      const targetCh = entry.target;
+      const tid = targetCh && typeof targetCh === "object" && "id" in targetCh ? targetCh.id : entry.targetId;
+      if (tid !== channelId) continue;
+      const count = entry.extra?.count ?? 0;
+      if (count && count < items.length) continue;
+      return entry.executor;
+    }
+  }
+
+  for (const item of items) {
+    if (!item.authorId) continue;
+    for (const entry of sorted) {
+      if (now - entry.createdTimestamp > maxAge) break;
+      if (entry.action !== AuditLogEvent.MessageDelete) continue;
+      const chExtra = entry.extra?.channel;
+      const eChId = chExtra && typeof chExtra === "object" && "id" in chExtra ? chExtra.id : null;
+      if (eChId !== channelId) continue;
+      if (entry.targetId === item.authorId) return entry.executor;
+    }
+  }
+
+  if (items.length === 1) {
+    const want = items[0].authorId;
+    for (const entry of sorted) {
+      if (now - entry.createdTimestamp > maxAge) break;
+      if (entry.action !== AuditLogEvent.MessageDelete) continue;
+      const chExtra = entry.extra?.channel;
+      const eChId = chExtra && typeof chExtra === "object" && "id" in chExtra ? chExtra.id : null;
+      if (eChId !== channelId) continue;
+      if (want && entry.targetId !== want) continue;
+      return entry.executor;
+    }
+  }
+
+  return null;
+}
+
+function executorLine(user) {
+  if (!user) return "";
+  const selfTag = user.id ? ` (<@${user.id}>)` : "";
+  return `**Suppression :** ${user.tag || user.username || "?"}${selfTag}\n`;
+}
+
+/**
+ * @param {string} channelId
+ * @param {import("discord.js").Client} client
+ */
+async function flushDeleteQueue(channelId, client) {
+  const pending = pendingDeletesByChannel.get(channelId);
+  if (!pending) return;
+  pendingDeletesByChannel.delete(channelId);
+  if (pending.timer) clearTimeout(pending.timer);
+
+  const { guild, items } = pending;
+  if (!items.length) return;
+
+  const channelUrl = channelJumpUrl(guild.id, channelId);
+  const execUser = await tryResolveDeleteExecutor(guild, channelId, items).catch(() => null);
+  const execBlock = executorLine(execUser);
+
+  if (items.length === 1) {
+    const it = items[0];
+    const embed = baseEmbed("Message supprimé", 0xed4245)
+      .setDescription(
+        `**Salon :** <#${it.channelId}>\n` +
+          execBlock +
+          `**Auteur :** ${it.authorTag}\n` +
+          `**ID message :** \`${it.messageId}\`\n` +
+          `[Ouvrir le salon](${channelUrl}) _(sans ancrage : le message n’existe plus)_`
+      )
+      .addFields({ name: "Contenu supprimé", value: truncate(it.snap, 1024) });
+    await sendModLog(guild, embed);
+    return;
+  }
+
+  const lines = [];
+  for (const it of items.slice(0, 18)) {
+    lines.push(`• **${it.authorTag}** — \`${it.messageId}\` : ${truncate(it.snap, 180)}`);
+  }
+  const more = items.length > 18 ? `\n_… et **${items.length - 18}** autre(s) — voir **!snipe**._` : "";
+  const embed = baseEmbed(`Messages supprimés (${items.length})`, 0xed4245).setDescription(
+    (
+      `**Salon :** <#${channelId}>\n` +
+        execBlock +
+        `[Ouvrir le salon](${channelUrl})\n\n` +
+        `${lines.join("\n")}${more}`
+    ).slice(0, 4090)
+  );
+  await sendModLog(guild, embed);
+}
+
+/**
+ * Enfile une ou plusieurs suppressions (même salon) puis envoie 1 embed après un court délai.
+ * @param {import("discord.js").Client} client
+ * @param {import("discord.js").Message | import("discord.js").PartialMessage} rawMessage
+ */
+async function enqueueMessageDeleteModlog(client, rawMessage) {
+  if (!rawMessage.guild) return;
+  if (rawMessage.author?.bot) return;
+  if (isBulkSuppressed(rawMessage.id)) return;
+  if (isDuplicateDeletionLog(rawMessage.id)) return;
+  markDeletionLogged(rawMessage.id);
+
+  let message = rawMessage;
+  if (message.partial) {
+    try {
+      message = await message.fetch();
+    } catch {
+      /* message déjà parti */
+    }
+  }
+
+  let author = message.author;
+  if (!author && message.authorId) {
+    author = await client.users.fetch(message.authorId).catch(() => null);
+  }
+
+  const authorTag = author
     ? `${author.tag} (\`${author.id}\`)`
     : `Inconnu (\`${String(message.authorId || "?")}\`)`;
-  const embed = baseEmbed("Message supprimé", 0xed4245)
-    .setDescription(
-      `**Salon :** <#${message.channelId}>\n` +
-        `**Auteur :** ${authorLine}\n` +
-        `**ID :** \`${message.id}\`\n` +
-        `[Contexte](https://discord.com/channels/${guild.id}/${message.channelId}/${message.id})`
-    )
-    .addFields({ name: "Contenu supprimé", value: truncate(snap, 1024) });
-  await sendModLog(guild, embed);
+  const authorId = author?.id || (typeof message.authorId === "string" ? message.authorId : "");
+  const snap = buildMessageSnapshot(message);
+
+  const channelId = message.channelId;
+  const guild = message.guild;
+
+  let pending = pendingDeletesByChannel.get(channelId);
+  if (!pending) {
+    pending = { guild, items: [], timer: null };
+    pendingDeletesByChannel.set(channelId, pending);
+  }
+
+  pending.items.push({
+    messageId: message.id,
+    authorTag,
+    authorId,
+    snap,
+    channelId
+  });
+
+  if (pending.timer) clearTimeout(pending.timer);
+  pending.timer = setTimeout(() => {
+    flushDeleteQueue(channelId, client).catch((e) =>
+      console.warn("[MODLOG] flushDeleteQueue", e?.message || e)
+    );
+  }, DELETE_BATCH_MS);
 }
 
 /**
@@ -109,8 +323,13 @@ async function logBulkMessagesDeleted(channel, messages) {
     lines.push(`• **${tag}** : ${truncate(snap, 220)}`);
   }
   const rest = human.length > 12 ? `\n_… et **${human.length - 12}** autre(s) — voir aussi **!snipe**._` : "";
+  const channelUrl = channelJumpUrl(guild.id, channel.id);
   const embed = baseEmbed(`Suppressions en masse (${human.length} message(s))`, 0xc27c0e).setDescription(
-    `**Salon :** <#${channel.id}>\n\n${lines.join("\n")}${rest}`.slice(0, 4090)
+    (
+      `**Salon :** <#${channel.id}>\n` +
+        `[Ouvrir le salon](${channelUrl})\n\n` +
+        `${lines.join("\n")}${rest}`
+    ).slice(0, 4090)
   );
   await sendModLog(guild, embed);
 }
@@ -144,4 +363,12 @@ async function logMessageEdited(oldMessage, newMessage) {
   await sendModLog(guild, embed);
 }
 
-module.exports = { sendModLog, baseEmbed, truncate, logMessageDeleted, logBulkMessagesDeleted, logMessageEdited };
+module.exports = {
+  sendModLog,
+  baseEmbed,
+  truncate,
+  enqueueMessageDeleteModlog,
+  registerBulkSuppressionIds,
+  logBulkMessagesDeleted,
+  logMessageEdited
+};

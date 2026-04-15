@@ -1,9 +1,10 @@
 const { recordDeletedMessage, forgetCachedMessage } = require("../../services/snipeEditCacheService");
-const { logBulkMessagesDeleted } = require("../../services/modLogService");
+const { logBulkMessagesDeleted, registerBulkSuppressionIds } = require("../../services/modLogService");
 
 module.exports = {
   name: "messageDeleteBulk",
   async execute(_client, messages) {
+    registerBulkSuppressionIds([...messages.keys()]);
     const arr = [...messages.values()].sort((a, b) => (b.createdTimestamp || 0) - (a.createdTimestamp || 0));
     for (const m of arr) recordDeletedMessage(m);
     const ch = arr[0]?.channel;
