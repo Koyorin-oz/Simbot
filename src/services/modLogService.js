@@ -71,19 +71,19 @@ function isDuplicateDeletionLog(messageId) {
 /** @type {Map<string, { guild: import("discord.js").Guild, items: DeleteQueueItem[], timer: NodeJS.Timeout | null }>} */
 const pendingDeletesByChannel = new Map();
 
-async function sendModLog(guild, embed) {
+/** @returns {Promise<import("discord.js").TextChannel | import("discord.js").NewsChannel | import("discord.js").ThreadChannel | null>} */
+async function resolveModLogChannel(guild) {
   const id = resolveModLogChannelId(guild?.id);
-  if (!id || !guild) return;
+  if (!id || !guild) return null;
   const ch = guild.channels.cache.get(id) || (await guild.channels.fetch(id).catch(() => null));
   if (!ch) {
     console.warn(`[MODLOG] Canal introuvable: guild=${guild.id} channel=${id}`);
-    return;
+    return null;
   }
   if (!ch.isTextBased?.()) {
     console.warn(`[MODLOG] Canal non textuel: guild=${guild.id} channel=${id} type=${ch.type}`);
-    return;
+    return null;
   }
-
   const me = guild.members.me;
   if (me) {
     const perms = ch.permissionsFor(me);
@@ -93,15 +93,83 @@ async function sendModLog(guild, embed) {
       perms?.has(PermissionFlagsBits.EmbedLinks);
     if (!canSend) {
       console.warn(`[MODLOG] Permissions insuffisantes: guild=${guild.id} channel=${id}`);
-      return;
+      return null;
     }
   }
+  return ch;
+}
 
+async function sendModLog(guild, embed) {
+  const ch = await resolveModLogChannel(guild);
+  if (!ch) return;
   const ok = await ch.send({ embeds: [embed] }).then(() => true).catch((e) => {
-    console.warn(`[MODLOG] Echec envoi: guild=${guild.id} channel=${id} err=${e?.message || e}`);
+    console.warn(`[MODLOG] Echec envoi: guild=${guild.id} channel=${ch.id} err=${e?.message || e}`);
     return false;
   });
   if (!ok) return;
+}
+
+/** Envoie plusieurs embeds découpés par paquets de 10 (limite Discord). */
+async function sendModLogEmbeds(guild, embeds) {
+  if (!embeds?.length) return;
+  const ch = await resolveModLogChannel(guild);
+  if (!ch) return;
+  for (let i = 0; i < embeds.length; i += 10) {
+    const slice = embeds.slice(i, i + 10);
+    const ok = await ch.send({ embeds: slice }).then(() => true).catch((e) => {
+      console.warn(`[MODLOG] Echec envoi multi-embed: guild=${guild.id} err=${e?.message || e}`);
+      return false;
+    });
+    if (!ok) return;
+  }
+}
+
+const BULK_LOG_BODY_MAX = 3900;
+
+/**
+ * Découpe un texte long en plusieurs embeds (coupures préférentiellement aux retours ligne).
+ * @param {string} mainTitle
+ * @param {number} color
+ * @param {string} fullText préambule + corps (sera découpé)
+ */
+function chunkTextToEmbeds(mainTitle, color, fullText) {
+  const text = fullText.trimEnd();
+  if (!text) return [baseEmbed(mainTitle, color).setDescription("_(aucun détail)_")];
+
+  /** @type {EmbedBuilder[]} */
+  const embeds = [];
+  let rest = text;
+  let first = true;
+  while (rest.length > 0) {
+    if (rest.length <= 4090) {
+      embeds.push(baseEmbed(first ? mainTitle : `${mainTitle} (suite)`, color).setDescription(rest));
+      break;
+    }
+    const sliceLen = Math.min(BULK_LOG_BODY_MAX, 4090);
+    let chunk = rest.slice(0, sliceLen);
+    const nl = chunk.lastIndexOf("\n");
+    if (nl > 400) chunk = chunk.slice(0, nl);
+    if (chunk.length === 0) chunk = rest.slice(0, sliceLen);
+    embeds.push(baseEmbed(first ? mainTitle : `${mainTitle} (suite)`, color).setDescription(chunk.trimEnd()));
+    rest = rest.slice(chunk.length).trimStart();
+    first = false;
+  }
+  return embeds;
+}
+
+/**
+ * Log staff : don économie (/give-lp, /give-sc, …).
+ * @param {import("discord.js").Guild} guild
+ * @param {{ adminTag: string, adminId: string, targetTag: string, targetId: string, amount: number, currencyLabel: string, commandLabel: string }} p
+ */
+async function logEconomyAdminGive(guild, p) {
+  const embed = baseEmbed("Don économie (admin)", 0x57f287).setDescription(
+    `**Staff :** ${p.adminTag} (\`${p.adminId}\`)\n` +
+      `**Cible :** ${p.targetTag} (\`${p.targetId}\`)\n` +
+      `**Montant :** ${Number(p.amount).toLocaleString("fr-FR")} **${p.currencyLabel}**\n` +
+      `**Commande :** \`${p.commandLabel}\``
+  );
+  await sendModLog(guild, embed);
 }
 
 function resolveModLogChannelId(guildId) {
@@ -233,20 +301,17 @@ async function flushDeleteQueue(channelId, client) {
     return;
   }
 
-  const lines = [];
-  for (const it of items.slice(0, 18)) {
-    lines.push(`• **${it.authorTag}** — \`${it.messageId}\` : ${truncate(it.snap, 180)}`);
-  }
-  const more = items.length > 18 ? `\n_… et **${items.length - 18}** autre(s) — voir **!snipe**._` : "";
-  const embed = baseEmbed(`Messages supprimés (${items.length})`, 0xed4245).setDescription(
-    (
-      `**Salon :** <#${channelId}>\n` +
-        execBlock +
-        `[Ouvrir le salon](${channelUrl})\n\n` +
-        `${lines.join("\n")}${more}`
-    ).slice(0, 4090)
+  const bodyLines = items.map(
+    (it) => `• **${it.authorTag}** — \`${it.messageId}\` : ${truncate(it.snap, 1900)}`
   );
-  await sendModLog(guild, embed);
+  const fullText =
+    `**Salon :** <#${channelId}>\n` +
+    execBlock +
+    `[Ouvrir le salon](${channelUrl})\n\n` +
+    `_Détail : **${items.length}** message(s) (tous inclus)._` +
+    `\n\n${bodyLines.join("\n")}`;
+  const embeds = chunkTextToEmbeds(`Messages supprimés (${items.length})`, 0xed4245, fullText);
+  await sendModLogEmbeds(guild, embeds);
 }
 
 /**
@@ -316,22 +381,24 @@ async function logBulkMessagesDeleted(channel, messages) {
   const human = messages.filter((m) => !m.author?.bot);
   if (!human.length) return;
 
-  const lines = [];
-  for (const m of human.slice(0, 12)) {
+  human.sort((a, b) => (a.createdTimestamp || 0) - (b.createdTimestamp || 0));
+  const channelUrl = channelJumpUrl(guild.id, channel.id);
+  const bodyLines = human.map((m) => {
     const snap = buildMessageSnapshot(m);
     const tag = m.author?.tag || String(m.authorId || "?");
-    lines.push(`• **${tag}** : ${truncate(snap, 220)}`);
-  }
-  const rest = human.length > 12 ? `\n_… et **${human.length - 12}** autre(s) — voir aussi **!snipe**._` : "";
-  const channelUrl = channelJumpUrl(guild.id, channel.id);
-  const embed = baseEmbed(`Suppressions en masse (${human.length} message(s))`, 0xc27c0e).setDescription(
-    (
-      `**Salon :** <#${channel.id}>\n` +
-        `[Ouvrir le salon](${channelUrl})\n\n` +
-        `${lines.join("\n")}${rest}`
-    ).slice(0, 4090)
-  );
-  await sendModLog(guild, embed);
+    const ts =
+      m.createdTimestamp != null
+        ? ` <t:${Math.floor(m.createdTimestamp / 1000)}:f> `
+        : " ";
+    return `•${ts}**${tag}** — \`${m.id}\` : ${truncate(snap, 1900)}`;
+  });
+  const fullText =
+    `**Salon :** <#${channel.id}>\n` +
+      `[Ouvrir le salon](${channelUrl})\n\n` +
+      `_**${human.length}** message(s) — liste complète sans troncature** (ordre chronologique, date par message)._` +
+      `\n\n${bodyLines.join("\n")}`;
+  const embeds = chunkTextToEmbeds(`Suppressions en masse (${human.length} message(s))`, 0xc27c0e, fullText);
+  await sendModLogEmbeds(guild, embeds);
 }
 
 /**
@@ -365,10 +432,12 @@ async function logMessageEdited(oldMessage, newMessage) {
 
 module.exports = {
   sendModLog,
+  sendModLogEmbeds,
   baseEmbed,
   truncate,
   enqueueMessageDeleteModlog,
   registerBulkSuppressionIds,
   logBulkMessagesDeleted,
-  logMessageEdited
+  logMessageEdited,
+  logEconomyAdminGive
 };

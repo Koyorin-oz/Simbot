@@ -3,6 +3,7 @@ const { addSC, addSP, addLP } = require("./_economyAdminUtils");
 const { formatSC } = require("../../utils/currency");
 const { syncRankRoleForMember } = require("../../services/rankRoleService");
 const { syncLevel3RoleForMember } = require("../../services/levelRoleService");
+const { logEconomyAdminGive } = require("../../services/modLogService");
 const { deferPublic } = require("../../utils/slashDefer");
 
 module.exports = {
@@ -42,6 +43,15 @@ module.exports = {
       await interaction.editReply(
         `Ajout de ${formatSC(amount)} Simba Coins a ${member.tag}. Nouveau solde: ${formatSC(updated.simbaCoins)} SC.`
       );
+      await logEconomyAdminGive(interaction.guild, {
+        adminTag: interaction.user.tag,
+        adminId: interaction.user.id,
+        targetTag: member.tag,
+        targetId: member.id,
+        amount,
+        currencyLabel: "SC (Simba Coins)",
+        commandLabel: "/admin-give money"
+      }).catch(() => null);
       return;
     }
     if (sub === "sp") {
@@ -56,6 +66,15 @@ module.exports = {
       await interaction.editReply(
         `Ajout de ${amount.toLocaleString("fr-FR")} SP a ${member.tag}. Nouveau total: ${updated.simbaPoints.toLocaleString("fr-FR")} SP.${syncWarning}`
       );
+      await logEconomyAdminGive(interaction.guild, {
+        adminTag: interaction.user.tag,
+        adminId: interaction.user.id,
+        targetTag: member.tag,
+        targetId: member.id,
+        amount,
+        currencyLabel: "SP (Simba Points)",
+        commandLabel: "/admin-give sp"
+      }).catch(() => null);
       return;
     }
     const updated = await addLP(client.prisma, interaction.guildId, member.id, amount);
@@ -64,5 +83,14 @@ module.exports = {
     await interaction.editReply(
       `Ajout de ${amount.toLocaleString("fr-FR")} LP a ${member.tag}. Niveau: ${updated.level}, LP: ${updated.levelPoints}.`
     );
+    await logEconomyAdminGive(interaction.guild, {
+      adminTag: interaction.user.tag,
+      adminId: interaction.user.id,
+      targetTag: member.tag,
+      targetId: member.id,
+      amount,
+      currencyLabel: "LP (Level Points)",
+      commandLabel: "/admin-give lp"
+    }).catch(() => null);
   }
 };

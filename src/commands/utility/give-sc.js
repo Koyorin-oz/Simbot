@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
 const { addSC } = require("./_economyAdminUtils");
+const { logEconomyAdminGive } = require("../../services/modLogService");
 const { deferPublic } = require("../../utils/slashDefer");
 
 module.exports = {
@@ -17,5 +18,14 @@ module.exports = {
     await interaction.editReply(
       `Ajout de ${amount.toLocaleString("fr-FR")} SC a ${member.tag}. Nouveau solde: ${updated.simbaCoins.toLocaleString("fr-FR")} SC.`
     );
+    await logEconomyAdminGive(interaction.guild, {
+      adminTag: interaction.user.tag,
+      adminId: interaction.user.id,
+      targetTag: member.tag,
+      targetId: member.id,
+      amount,
+      currencyLabel: "SC (Simba Coins)",
+      commandLabel: "/give-sc"
+    }).catch(() => null);
   }
 };

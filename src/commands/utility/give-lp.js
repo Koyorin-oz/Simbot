@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
 const { addLP } = require("./_economyAdminUtils");
 const { syncLevel3RoleForMember } = require("../../services/levelRoleService");
+const { logEconomyAdminGive } = require("../../services/modLogService");
 const { deferPublic } = require("../../utils/slashDefer");
 
 module.exports = {
@@ -20,5 +21,14 @@ module.exports = {
     await interaction.editReply(
       `Ajout de ${amount.toLocaleString("fr-FR")} LP a ${member.tag}. Niveau: ${updated.level}, LP: ${updated.levelPoints}.`
     );
+    await logEconomyAdminGive(interaction.guild, {
+      adminTag: interaction.user.tag,
+      adminId: interaction.user.id,
+      targetTag: member.tag,
+      targetId: member.id,
+      amount,
+      currencyLabel: "LP (Level Points)",
+      commandLabel: "/give-lp"
+    }).catch(() => null);
   }
 };
