@@ -8,7 +8,7 @@ if (!fs.existsSync(envPath)) {
 }
 require("dotenv").config({ path: envPath, override: true });
 const { REST, Routes } = require("discord.js");
-const { mainGuildId } = require("./config");
+const { mainGuildId, botTestGuildId } = require("./config");
 
 function resolveDiscordToken() {
   return String(
@@ -67,9 +67,20 @@ function walk(dir) {
   }
 
   const argGuildId = process.argv[2];
-  const guildId = argGuildId || process.env.DISCORD_GUILD_ID || process.env.GUILD_ID || mainGuildId;
+  /** @type {string[]} */
+  let guildIds;
+  if (argGuildId) {
+    guildIds = [argGuildId];
+  } else {
+    const set = new Set();
+    set.add(mainGuildId);
+    if (botTestGuildId && botTestGuildId !== mainGuildId) set.add(botTestGuildId);
+    const envG = String(process.env.DISCORD_GUILD_ID || process.env.GUILD_ID || "").trim();
+    if (envG && !set.has(envG)) set.add(envG);
+    guildIds = [...set];
+  }
   console.log(
-    `[DEPLOY] CLIENT_ID=${clientId} GUILD_ID=${guildId} SOURCE=${argGuildId ? "argv" : "env"}`
+    `[DEPLOY] CLIENT_ID=${clientId} GUILDS=${guildIds.join(",")} SOURCE=${argGuildId ? "argv" : "main+test(+env si different)"}`
   );
   const commands = [];
   const files = walk(path.join(__dirname, "commands"));
@@ -84,10 +95,12 @@ function walk(dir) {
   }
 
   const rest = new REST({ version: "10" }).setToken(token);
-  await rest.put(Routes.applicationGuildCommands(clientId, guildId), {
-    body: commands
-  });
-  console.log(`Commandes deployees: ${commands.length}`);
+  for (const guildId of guildIds) {
+    await rest.put(Routes.applicationGuildCommands(clientId, guildId), {
+      body: commands
+    });
+    console.log(`[DEPLOY] OK guild ${guildId} — ${commands.length} commande(s)`);
+  }
   console.log(
     "[DEPLOY] Acces runtime SimBot : commandes dev/admin -> role COMMAND_ADMIN_DEV_ROLE_ID (defaut 739948639300092055) ; moderation -> COMMAND_MODERATION_ROLE_ID (defaut 736488084929118298) ; + COMMAND_OWNER_USER_ID."
   );

@@ -1,15 +1,11 @@
 const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require("discord.js");
+const { mainGuildId, botTestGuildId } = require("../../config");
 
 const OWNER_BYPASS_ID = "965984018216665099";
 const DM_DELAY_MS = 1100;
 const PROGRESS_EVERY = 12;
 /** Reponse interaction Discord ~15 min ; on s'arrete avant pour laisser le bilan. */
 const MAX_RUN_MS = 13.5 * 60 * 1000;
-
-function hasStrictAdmin(interaction) {
-  if (interaction.user?.id === OWNER_BYPASS_ID) return true;
-  return Boolean(interaction.memberPermissions?.has(PermissionFlagsBits.Administrator));
-}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,10 +22,18 @@ function isProbablyImage(att) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("dm-all")
-    .setDescription(
-      "Envoie un message prive a tous les membres du serveur (hors bots). Reserve aux administrateurs."
-    )
+    .setDescription("MP a tous les humains du serveur choisi (test ou prod). Admin requis sur la cible.")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addStringOption((o) =>
+      o
+        .setName("serveur_cible")
+        .setDescription("Serveur dont les membres recevront le MP")
+        .setRequired(true)
+        .addChoices(
+          { name: "Serveur de test (bot test)", value: botTestGuildId },
+          { name: "La Carminaute (production)", value: mainGuildId }
+        )
+    )
     .addStringOption((o) =>
       o
         .setName("message")
@@ -41,17 +45,35 @@ module.exports = {
       o.setName("image").setDescription("Image a joindre au MP (optionnel)").setRequired(false)
     ),
   async execute(client, interaction) {
-    if (!hasStrictAdmin(interaction)) {
+    if (!interaction.inGuild()) {
       await interaction.reply({
-        content: "Reserve aux **administrateurs** du serveur.",
+        content: "Utilise cette commande **sur un serveur** (pas en MP).",
         flags: MessageFlags.Ephemeral
       });
       return;
     }
 
-    if (!interaction.inGuild()) {
+    const targetGuildId = interaction.options.getString("serveur_cible", true);
+    const targetGuild =
+      client.guilds.cache.get(targetGuildId) || (await client.guilds.fetch(targetGuildId).catch(() => null));
+    if (!targetGuild) {
       await interaction.reply({
-        content: "Utilise cette commande **sur le serveur** (pas en MP).",
+        content: "Le bot n'est pas present sur le serveur cible (ou ID invalide).",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    const canRun =
+      interaction.user.id === OWNER_BYPASS_ID ||
+      (await targetGuild.members
+        .fetch(interaction.user.id)
+        .then((m) => m?.permissions?.has(PermissionFlagsBits.Administrator))
+        .catch(() => false));
+    if (!canRun) {
+      await interaction.reply({
+        content:
+          "Tu dois etre **administrateur** sur le serveur **cible** choisi (meme si tu lances la commande depuis un autre serveur).",
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -88,7 +110,7 @@ module.exports = {
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    const guild = interaction.guild;
+    const guild = targetGuild;
     try {
       await guild.members.fetch();
     } catch (e) {
@@ -144,6 +166,7 @@ module.exports = {
 
     const lines = [
       "**DM masse termine**",
+      `Serveur : **${guild.name}** (\`${guild.id}\`)`,
       `Membres cibles : **${total}**`,
       `MP envoyes : **${ok}**`,
       `Echecs (MP fermes, bot bloque, etc.) : **${fail}**`
