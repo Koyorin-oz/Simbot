@@ -7,8 +7,11 @@ const { mainGuildId, botTestGuildId } = require("../../config");
 const OWNER_BYPASS_ID = "965984018216665099";
 
 /** Envoi parallele (par lot) + courte pause entre lots pour limiter les 429 Discord. */
-const CONCURRENCY = 6;
+const CONCURRENCY_TEXT = 6;
+/** Avec fichier : moins de parallelisme (upload + CDN). */
+const CONCURRENCY_FILE = 3;
 const BATCH_PAUSE_MS = 380;
+const BATCH_PAUSE_FILE_MS = 520;
 
 /** Mise a jour du message d'avancement (moins souvent = moins de latence). */
 const EDIT_PROGRESS_EVERY = 55;
@@ -85,7 +88,7 @@ function deleteProgressFile(filePath) {
 
 /**
  * @param {import("discord.js").GuildMember} member
- * @param {object} payload
+ * @param {import("discord.js").BaseMessageOptions} payload
  */
 async function sendMemberDm(member, payload) {
   try {
@@ -98,16 +101,18 @@ async function sendMemberDm(member, payload) {
       (typeof e?.rawError?.retry_after === "number" && e.rawError.retry_after) ||
       (typeof e?.body?.retry_after === "number" && e.body.retry_after) ||
       null;
-    if ((code === 429 || e?.status === 429) && retryAfter != null) {
-      await sleep(Math.ceil(Number(retryAfter) * 1000) + 400);
+    if (code === 429 || e?.status === 429) {
+      const waitMs =
+        retryAfter != null ? Math.ceil(Number(retryAfter) * 1000) + 500 : 2500;
+      await sleep(waitMs);
       try {
         await member.send(payload);
         return { ok: true };
       } catch {
-        return { ok: false };
+        return { ok: false, code, msg: String(e?.message || e).slice(0, 120) };
       }
     }
-    return { ok: false };
+    return { ok: false, code, msg: String(e?.message || e).slice(0, 120) };
   }
 }
 
@@ -254,14 +259,38 @@ module.exports = {
       return;
     }
 
-    const filePart = image
-      ? [{ attachment: image.url, name: image.name || "image.png" }]
-      : undefined;
+    /** @type {{ attachment: Buffer; name: string }[] | null} */
+    let filesFromBuffer = null;
+    if (image) {
+      try {
+        const res = await fetch(image.url);
+        if (!res.ok) {
+          await interaction.editReply({
+            content: `Impossible de telecharger l'image HTTP **${res.status}**. Reessaie ou renvoie l'image.`
+          });
+          return;
+        }
+        const buf = Buffer.from(await res.arrayBuffer());
+        filesFromBuffer = [{ attachment: buf, name: image.name || "image.png" }];
+      } catch (e) {
+        await interaction.editReply({
+          content: `Erreur telechargement image : ${String(e?.message || e).slice(0, 350)}`
+        });
+        return;
+      }
+    }
 
-    const payload = {
-      content: texte || undefined,
-      files: filePart
-    };
+    /** @type {import("discord.js").BaseMessageOptions} */
+    const payload = {};
+    if (texte) payload.content = texte;
+    if (filesFromBuffer) payload.files = filesFromBuffer;
+    if (!payload.content && !payload.files) {
+      await interaction.editReply({ content: "Payload MP invalide (ni texte ni fichier)." });
+      return;
+    }
+
+    const concurrency = filesFromBuffer ? CONCURRENCY_FILE : CONCURRENCY_TEXT;
+    const batchPause = filesFromBuffer ? BATCH_PAUSE_FILE_MS : BATCH_PAUSE_MS;
 
     /** IDs reussis sur cette execution + historique charge */
     const sentIds = new Set(alreadySent);
@@ -271,6 +300,7 @@ module.exports = {
     const t0 = Date.now();
     let processed = 0;
     let lastFlush = 0;
+    let firstFailLogged = false;
 
     const flushIfNeeded = () => {
       const n = ok + fail;
@@ -284,20 +314,25 @@ module.exports = {
       }
     };
 
-    for (let i = 0; i < toSend.length; i += CONCURRENCY) {
+    for (let i = 0; i < toSend.length; i += concurrency) {
       if (Date.now() - t0 > MAX_RUN_MS) {
         aborted = true;
         break;
       }
-      const batch = toSend.slice(i, i + CONCURRENCY);
+      const batch = toSend.slice(i, i + concurrency);
       const results = await Promise.all(batch.map((m) => sendMemberDm(m, payload)));
       for (let j = 0; j < batch.length; j++) {
         const m = batch[j];
-        if (results[j]?.ok) {
+        const r = results[j];
+        if (r?.ok) {
           ok += 1;
           sentIds.add(m.id);
         } else {
           fail += 1;
+          if (!firstFailLogged && r?.msg != null) {
+            firstFailLogged = true;
+            console.warn(`[DM-ALL] premier echec code=${r.code} msg=${r.msg}`);
+          }
         }
       }
       processed += batch.length;
@@ -313,8 +348,8 @@ module.exports = {
           })
           .catch(() => null);
       }
-      if (i + CONCURRENCY < toSend.length) {
-        await sleep(BATCH_PAUSE_MS);
+      if (i + concurrency < toSend.length) {
+        await sleep(batchPause);
       }
     }
 
