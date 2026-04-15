@@ -197,13 +197,14 @@ module.exports = {
     const asterionPhrases = ["asterion", "astefion"];
     const asterionReplies = [
       "Ne me parlez plus de ce type, j'en fais encore des cauchemars.",
-      "Je ferai payer Carmine pour m'avoir livré à Astérion."
+      "Je ferai payer Carmine pour m'avoir livré à Astérion.",
+      "Même Kekos aurait eu l'instinct de fuir. Moi j'étais coincé. Next."
     ];
 
     const ilEstBanPhrases = ["il est ban"];
     const ilEstBanReplies = [
       "CHEH ! C'était une grosse merde de toute façon.",
-      "Il faut que je retrouve cette personne pour rejoindre mon club anti-Carmine."
+      "Bien vu. Une peste en moins — même Kekos aurait applaudi sans comprendre pourquoi."
     ];
 
     const carmineRegex = /^\s*carmine[.!?…]*\s*$/i;
@@ -216,7 +217,7 @@ module.exports = {
       "salut, je suis nouveau !"
     ];
     const jeSuisNouveauReplies = [
-      "Tu es nouveau ? Profite-en vite pour t'enfuir, ce serveur est une secte pro-Carmine.",
+      "Tu es nouveau ? Profite-en tant qu'il est encore temps de te planquer.",
       "Je ne souhaite pas la bienvenue sur ce serveur, Simba ne s'abaisserait pas à ça."
     ];
 

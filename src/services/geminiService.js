@@ -547,19 +547,40 @@ async function generateGeminiDinguerie(userHint = "", guild = null) {
  */
 async function generateGeminiPingReply(strippedMessage = "", guild = null) {
   const msg = String(strippedMessage || "").trim().slice(0, 2000);
-  const userPart = msg
-    ? `L'utilisateur t'a mentionné sur Discord. Réponds de façon pertinente, en quelques phrases max, en respectant ton rôle (prompt système). Pas de préambule du type « en tant qu'IA ». Même s'il te demande des pings, applique la règle : aucune mention Discord.\n\nMessage :\n${msg}`
-    : `L'utilisateur t'a mentionné sans autre texte. Réponds très court, dans ton style. Aucune mention Discord.`;
-  return runGroqUserTurn(
-    userPart,
-    Number(
-      process.env.GROQ_PING_MAX_TOKENS ||
-        process.env.GROK_PING_MAX_TOKENS ||
-        process.env.GEMINI_PING_MAX_TOKENS ||
-        640
-    ),
-    { guild }
+  const compactLen = msg.replace(/\s+/g, "").length;
+  const envPingMax = Number(
+    process.env.GROQ_PING_MAX_TOKENS ||
+      process.env.GROK_PING_MAX_TOKENS ||
+      process.env.GEMINI_PING_MAX_TOKENS ||
+      640
   );
+  let maxTokPing = Number.isFinite(envPingMax) && envPingMax > 0 ? envPingMax : 640;
+  if (!msg) maxTokPing = Math.min(maxTokPing, 140);
+  else if (compactLen <= 18) maxTokPing = Math.min(maxTokPing, 160);
+  else if (msg.length <= 55) maxTokPing = Math.min(maxTokPing, 260);
+  else if (msg.length <= 140) maxTokPing = Math.min(maxTokPing, 380);
+  else if (msg.length <= 320) maxTokPing = Math.min(maxTokPing, 520);
+
+  let lengthBlock = "";
+  if (!msg) {
+    lengthBlock =
+      "**Longueur :** une seule phrase très courte (style sec / laconique).\n";
+  } else if (compactLen <= 22 || msg.length <= 45) {
+    lengthBlock =
+      "**Longueur :** message minimal — réponds en **une phrase courte** (même ordre de taille ou plus court), percutant. Pas de pavé, pas de liste de noms du lore.\n";
+  } else if (msg.length <= 120) {
+    lengthBlock =
+      "**Longueur :** message court — **1 à 2 phrases max** sauf si la question impose un minimum d’explication.\n";
+  } else if (msg.length <= 400) {
+    lengthBlock = "**Longueur :** reste concis (quelques phrases), sans boursouffler.\n";
+  } else {
+    lengthBlock = "**Longueur :** message long — tu peux développer si nécessaire.\n";
+  }
+
+  const userPart = msg
+    ? `${lengthBlock}L'utilisateur t'a mentionné sur Discord. Réponds de façon pertinente, en respectant ton rôle (prompt système). Pas de préambule du type « en tant qu'IA ». Même s'il te demande des pings, applique la règle : aucune mention Discord.\n\nMessage :\n${msg}`
+    : `${lengthBlock}L'utilisateur t'a mentionné sans autre texte. Réponds très court, dans ton style. Aucune mention Discord.`;
+  return runGroqUserTurn(userPart, maxTokPing, { guild });
 }
 
 module.exports = {
