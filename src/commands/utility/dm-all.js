@@ -6,12 +6,15 @@ const { mainGuildId, botTestGuildId } = require("../../config");
 
 const OWNER_BYPASS_ID = "965984018216665099";
 
-/** Envoi parallele (par lot) + courte pause entre lots pour limiter les 429 Discord. */
-const CONCURRENCY_TEXT = 6;
-/** Avec fichier : moins de parallelisme (upload + CDN). */
-const CONCURRENCY_FILE = 3;
-const BATCH_PAUSE_MS = 380;
-const BATCH_PAUSE_FILE_MS = 520;
+/**
+ * Discord limite fortement POST /users/@me/channels (ouverture MP) : trop de parallelisme
+ * = 429 en rafale puis echecs en chaine. On reste prudent ; le retry ci-dessous gere le reste.
+ */
+const CONCURRENCY_TEXT = 2;
+/** Avec fichier : un seul envoi a la fois (buffer copie + upload). */
+const CONCURRENCY_FILE = 1;
+const BATCH_PAUSE_MS = 950;
+const BATCH_PAUSE_FILE_MS = 1400;
 
 /** Mise a jour du message d'avancement (moins souvent = moins de latence). */
 const EDIT_PROGRESS_EVERY = 55;
@@ -86,34 +89,74 @@ function deleteProgressFile(filePath) {
   }
 }
 
+function retryAfterMs(e) {
+  const ra =
+    (typeof e?.data?.retry_after === "number" && e.data.retry_after) ||
+    (typeof e?.rawError?.retry_after === "number" && e.rawError.retry_after) ||
+    (typeof e?.body?.retry_after === "number" && e.body.retry_after) ||
+    null;
+  if (ra != null && Number.isFinite(ra)) {
+    const sec = Number(ra);
+    return Math.min(60_000, Math.ceil(sec * 1000) + 800);
+  }
+  const h = e?.headers?.get?.("retry-after");
+  if (h != null && h !== "") {
+    const sec = Number(h);
+    if (Number.isFinite(sec)) return Math.min(60_000, Math.ceil(sec * 1000) + 800);
+  }
+  return 3200;
+}
+
+function isTransientHttpError(e) {
+  const st = e?.status ?? e?.statusCode;
+  if (st === 429) return true;
+  if (st === 408 || st === 500 || st === 502 || st === 503 || st === 504) return true;
+  if (typeof st === "number" && st >= 520 && st <= 524) return true;
+  return false;
+}
+
+function describeSendError(e) {
+  const st = e?.status ?? e?.statusCode;
+  const api = e?.rawError?.code ?? e?.code;
+  const msg = String(e?.message || e).slice(0, 180);
+  if (api != null && st != null) return `[HTTP ${st} / API ${api}] ${msg}`;
+  if (st != null) return `[HTTP ${st}] ${msg}`;
+  return msg;
+}
+
 /**
  * @param {import("discord.js").GuildMember} member
- * @param {import("discord.js").BaseMessageOptions} payload
+ * @param {() => import("discord.js").BaseMessageOptions} buildPayload Options fraiches par tentative (buffers fichiers).
  */
-async function sendMemberDm(member, payload) {
-  try {
-    await member.send(payload);
-    return { ok: true };
-  } catch (e) {
-    const code = e?.code;
-    const retryAfter =
-      (typeof e?.data?.retry_after === "number" && e.data.retry_after) ||
-      (typeof e?.rawError?.retry_after === "number" && e.rawError.retry_after) ||
-      (typeof e?.body?.retry_after === "number" && e.body.retry_after) ||
-      null;
-    if (code === 429 || e?.status === 429) {
-      const waitMs =
-        retryAfter != null ? Math.ceil(Number(retryAfter) * 1000) + 500 : 2500;
-      await sleep(waitMs);
-      try {
-        await member.send(payload);
-        return { ok: true };
-      } catch {
-        return { ok: false, code, msg: String(e?.message || e).slice(0, 120) };
+async function sendMemberDm(member, buildPayload) {
+  const user = member.user;
+  if (!user) return { ok: false, code: "NO_USER", msg: "Membre sans user (cache)" };
+
+  const maxAttempts = 8;
+  let lastErr = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      await user.send(buildPayload());
+      return { ok: true };
+    } catch (e) {
+      lastErr = e;
+      if (isTransientHttpError(e) && attempt < maxAttempts - 1) {
+        const wait = e?.status === 429 || e?.statusCode === 429 ? retryAfterMs(e) : 1200 + attempt * 400;
+        await sleep(wait);
+        continue;
       }
+      return {
+        ok: false,
+        code: e?.rawError?.code ?? e?.code ?? e?.status,
+        msg: describeSendError(e)
+      };
     }
-    return { ok: false, code, msg: String(e?.message || e).slice(0, 120) };
   }
+  return {
+    ok: false,
+    code: lastErr?.rawError?.code ?? lastErr?.code,
+    msg: describeSendError(lastErr)
+  };
 }
 
 module.exports = {
@@ -280,11 +323,20 @@ module.exports = {
       }
     }
 
-    /** @type {import("discord.js").BaseMessageOptions} */
-    const payload = {};
-    if (texte) payload.content = texte;
-    if (filesFromBuffer) payload.files = filesFromBuffer;
-    if (!payload.content && !payload.files) {
+    /** Buffer image brute (copiee a chaque envoi pour eviter races en parallele). */
+    const imageBuf = filesFromBuffer?.[0]?.attachment ?? null;
+    const imageName = filesFromBuffer?.[0]?.name ?? "image.png";
+
+    const buildPayload = () => {
+      /** @type {import("discord.js").BaseMessageOptions} */
+      const o = { allowedMentions: { parse: [] } };
+      if (texte) o.content = texte;
+      if (imageBuf) o.files = [{ attachment: Buffer.from(imageBuf), name: imageName }];
+      return o;
+    };
+
+    const probe = buildPayload();
+    if (!probe.content && !probe.files) {
       await interaction.editReply({ content: "Payload MP invalide (ni texte ni fichier)." });
       return;
     }
@@ -301,6 +353,8 @@ module.exports = {
     let processed = 0;
     let lastFlush = 0;
     let firstFailLogged = false;
+    /** @type {string[]} */
+    const failSamples = [];
 
     const flushIfNeeded = () => {
       const n = ok + fail;
@@ -320,7 +374,7 @@ module.exports = {
         break;
       }
       const batch = toSend.slice(i, i + concurrency);
-      const results = await Promise.all(batch.map((m) => sendMemberDm(m, payload)));
+      const results = await Promise.all(batch.map((m) => sendMemberDm(m, buildPayload)));
       for (let j = 0; j < batch.length; j++) {
         const m = batch[j];
         const r = results[j];
@@ -333,6 +387,10 @@ module.exports = {
             firstFailLogged = true;
             console.warn(`[DM-ALL] premier echec code=${r.code} msg=${r.msg}`);
           }
+          if (failSamples.length < 3 && r?.msg) {
+            const line = `${r.code != null ? `${r.code}: ` : ""}${r.msg}`;
+            if (!failSamples.includes(line)) failSamples.push(line);
+          }
         }
       }
       processed += batch.length;
@@ -344,7 +402,10 @@ module.exports = {
             content:
               `Envoi… **${processed}/${total}** cette vague (${totalMembers} humains sur le serveur` +
               (skippedDup ? `, **${skippedDup}** deja contactes avant — exclus` : "") +
-              `). Reussis **${ok}**, echecs **${fail}**.`
+              `). Reussis **${ok}**, echecs **${fail}**.` +
+              (failSamples.length && ok === 0 && processed <= EDIT_PROGRESS_EVERY
+                ? `\n> Exemples d'erreur : ${failSamples.map((s) => `\`${s.slice(0, 90)}\``).join(" · ")}`
+                : "")
           })
           .catch(() => null);
       }
@@ -370,6 +431,12 @@ module.exports = {
       `MP envoyes : **${ok}**`,
       `Echecs (MP fermes, bot bloque, etc.) : **${fail}**`
     ].filter(Boolean);
+    if (failSamples.length && fail > 0) {
+      lines.push("", "**Exemples d'erreurs API** (pour diagnostic) :");
+      for (const s of failSamples.slice(0, 3)) {
+        lines.push(`- \`${s.slice(0, 200)}\``);
+      }
+    }
     if (aborted) {
       lines.push(
         "",
