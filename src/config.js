@@ -404,6 +404,8 @@ module.exports = {
     pollIntervalMinutes: Math.max(2, Number(process.env.YOUTUBE_NOTIFY_POLL_MINUTES) || 5),
     /** Ne pas notifier une video si le RSS indique une publication plus vieille que ca (heures). Evite les faux positifs. */
     maxVideoAgeHours: Math.min(168, Math.max(6, Number(process.env.YOUTUBE_NOTIFY_MAX_VIDEO_AGE_HOURS) || 40)),
+    /** Anti-spam console : minutes entre deux logs d erreur RSS pour la meme chaine. */
+    rssErrorLogMinutes: Math.max(5, Number(process.env.YOUTUBE_NOTIFY_RSS_ERROR_LOG_MINUTES) || 30),
     /**
      * Uniquement ces deux chaines (RSS) — toute autre entree est ignoree par le service (liste blanche).
      * https://www.youtube.com/@Carminator.officiel et https://www.youtube.com/@Carmineoff

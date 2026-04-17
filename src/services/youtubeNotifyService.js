@@ -11,8 +11,57 @@ const { isFrozen } = require("./simbotRuntimeService");
 const YT_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
-const RSS_BY_CHANNEL = (channelId) =>
-  `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Depuis certains hebergeurs, YouTube repond 404/403/5xx sans flux ; en-tetes « navigateur » + repli d’hote + retries. */
+function youtubeRssHeaders() {
+  return {
+    "User-Agent": YT_UA,
+    Accept: "application/atom+xml,application/xml,text/xml;q=0.9,text/html;q=0.8,*/*;q=0.7",
+    "Accept-Language": "en-US,en;q=0.9,fr-FR,fr;q=0.8",
+    Referer: "https://www.youtube.com/",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+    "Cache-Control": "no-cache"
+  };
+}
+
+const RSS_URL_BUILDERS = [
+  (channelId) =>
+    `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`,
+  (channelId) => `https://youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`
+];
+
+/** @type {Map<string, { lastLog: number; suppressed: number }>} */
+const rssErrorThrottle = new Map();
+
+function rssErrorLogIntervalMs() {
+  return Math.max(5, Number(config.youtubeNotify?.rssErrorLogMinutes) || 30) * 60 * 1000;
+}
+
+function clearRssErrorThrottle(sourceKey) {
+  rssErrorThrottle.delete(sourceKey);
+}
+
+function logRssErrorThrottled(sourceKey, displayName, message) {
+  const now = Date.now();
+  const prev = rssErrorThrottle.get(sourceKey);
+  if (!prev || now - prev.lastLog >= rssErrorLogIntervalMs()) {
+    const extra = prev?.suppressed ? ` (${prev.suppressed} echecs precedents non affiches)` : "";
+    console.warn(`[YOUTUBE_NOTIFY] RSS ${displayName} (${sourceKey}): ${message}${extra}`);
+    rssErrorThrottle.set(sourceKey, { lastLog: now, suppressed: 0 });
+  } else {
+    rssErrorThrottle.set(sourceKey, {
+      lastLog: prev.lastLog,
+      suppressed: (prev.suppressed || 0) + 1
+    });
+  }
+}
 
 /** Seules ces chaines (@handle sans @, minuscules) declenchent des notifs — pas de channelId arbitraire. */
 const ALLOWED_NOTIFY_HANDLES = new Set(["carmineoff", "carminator.officiel"]);
@@ -57,12 +106,72 @@ function parseYoutubeAtomEntries(xml) {
   return entries;
 }
 
+function youtubeChannelPageHeaders() {
+  return {
+    "User-Agent": YT_UA,
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,fr-FR,fr;q=0.8",
+    Referer: "https://www.youtube.com/",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Upgrade-Insecure-Requests": "1"
+  };
+}
+
+/** Page HTML (@handle, etc.) — pas les memes Accept que le flux RSS. */
 async function fetchText(url) {
-  const res = await fetch(url, {
-    headers: { "User-Agent": YT_UA, "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8" }
-  });
+  const res = await fetch(url, { headers: youtubeChannelPageHeaders() });
   if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
   return res.text();
+}
+
+/**
+ * Telecharge le flux Atom RSS d’une chaine (UC…). Plusieurs URL + retries pour limiter 404/500 cote hebergeur.
+ * @param {string} channelId
+ */
+async function fetchYoutubeRssXml(channelId) {
+  const id = String(channelId || "").trim();
+  if (!/^UC[\w-]{22}$/.test(id)) {
+    throw new Error(`channelId RSS invalide: ${id}`);
+  }
+
+  const delaysMs = [0, 700, 1800, 4000];
+  const retryable = (status) =>
+    status === 403 ||
+    status === 404 ||
+    status === 408 ||
+    status === 429 ||
+    (status >= 500 && status <= 504);
+
+  let lastErr = "RSS YouTube: aucune reponse valide";
+
+  for (let bi = 0; bi < RSS_URL_BUILDERS.length; bi++) {
+    if (bi > 0) await sleep(900);
+    const buildUrl = RSS_URL_BUILDERS[bi];
+    const url = buildUrl(id);
+    for (let attempt = 0; attempt < delaysMs.length; attempt++) {
+      if (attempt > 0) await sleep(delaysMs[attempt]);
+      try {
+        const res = await fetch(url, { headers: youtubeRssHeaders() });
+        const text = await res.text();
+        if (res.ok) {
+          if (text.includes("<entry") || (text.includes("<feed") && text.includes("yt:videoId"))) {
+            return text;
+          }
+          lastErr = `HTTP ${res.status} corps invalide (pas Atom attendu)`;
+          continue;
+        }
+        lastErr = `HTTP ${res.status} ${url}`;
+        if (!retryable(res.status)) break;
+      } catch (e) {
+        lastErr = `${e?.message || e}`;
+        await sleep(500);
+      }
+    }
+  }
+
+  throw new Error(lastErr);
 }
 
 /**
@@ -145,7 +254,8 @@ async function sendYoutubeNotification(channel, displayName, videoId, title) {
 
 /** Derniere video du flux RSS pour un channelId UC... */
 async function fetchLatestVideoForSourceKey(sourceKey) {
-  const xml = await fetchText(RSS_BY_CHANNEL(sourceKey));
+  const xml = await fetchYoutubeRssXml(sourceKey);
+  clearRssErrorThrottle(sourceKey);
   const entries = parseYoutubeAtomEntries(xml);
   return entries.length ? entries[0] : null;
 }
@@ -207,7 +317,14 @@ async function resolveSources(sources) {
 
 async function pollOneSource(client, prisma, channel, source) {
   const { sourceKey, displayName } = source;
-  const xml = await fetchText(RSS_BY_CHANNEL(sourceKey));
+  let xml;
+  try {
+    xml = await fetchYoutubeRssXml(sourceKey);
+    clearRssErrorThrottle(sourceKey);
+  } catch (e) {
+    logRssErrorThrottled(sourceKey, displayName, e?.message || String(e));
+    return;
+  }
   const entries = parseYoutubeAtomEntries(xml);
   if (!entries.length) return;
 
@@ -301,7 +418,7 @@ async function runYoutubeNotifyPoll(client) {
 
   for (const src of resolved) {
     await pollOneSource(client, client.prisma, channel, src).catch((err) => {
-      console.error(`[YOUTUBE_NOTIFY] Poll ${src.displayName}:`, err?.message || err);
+      console.error(`[YOUTUBE_NOTIFY] Poll ${src.displayName} (interne):`, err?.message || err);
     });
   }
 }
