@@ -46,7 +46,13 @@ function parseYoutubeAtomEntries(xml) {
     const titleM = block.match(/<title(?:[^>]*)>([^<]*)<\/title>/);
     let title = titleM ? titleM[1].trim() : "Nouvelle video";
     title = decodeXmlEntities(title);
-    entries.push({ id: videoId, title });
+    const pubM = block.match(/<published>([^<]+)<\/published>/);
+    let publishedAt = null;
+    if (pubM) {
+      const d = new Date(String(pubM[1]).trim());
+      if (!Number.isNaN(d.getTime())) publishedAt = d;
+    }
+    entries.push({ id: videoId, title, publishedAt });
   }
   return entries;
 }
@@ -208,6 +214,10 @@ async function pollOneSource(client, prisma, channel, source) {
   const newestId = entries[0].id;
   const state = await prisma.youTubeNotifyState.findUnique({ where: { sourceKey } });
 
+  const maxAgeMs =
+    (Number(config.youtubeNotify?.maxVideoAgeHours) || 40) * 60 * 60 * 1000;
+  const now = Date.now();
+
   if (!state?.lastVideoId) {
     await prisma.youTubeNotifyState.upsert({
       where: { sourceKey },
@@ -221,10 +231,26 @@ async function pollOneSource(client, prisma, channel, source) {
   if (state.lastVideoId === newestId) return;
 
   const idx = entries.findIndex((e) => e.id === state.lastVideoId);
-  const toPost = idx === -1 ? [entries[0]] : entries.slice(0, idx).reverse();
+  /**
+   * Si lastVideoId n'est plus dans le flux (RSS tronque), l'ancien code prenait entries[0] comme "nouveau"
+   * et renvoyait une notif pour la derniere video du flux — souvent une video deja vieille (ex. hier).
+   * On resynchronise le curseur sans notifier.
+   */
+  const toPost = idx === -1 ? [] : entries.slice(0, idx).reverse();
+  if (idx === -1) {
+    console.warn(
+      `[YOUTUBE_NOTIFY] lastVideoId absent du flux (${displayName}, ${sourceKey}) — resync sans notif vers ${newestId}`
+    );
+  }
 
   for (const e of toPost) {
     if (isFrozen()) break;
+    if (e.publishedAt && now - e.publishedAt.getTime() > maxAgeMs) {
+      console.log(
+        `[YOUTUBE_NOTIFY] Skip notif (publie il y a ${Math.round((now - e.publishedAt.getTime()) / 3600000)}h, max ${Math.round(maxAgeMs / 3600000)}h) ${displayName} ${e.id}`
+      );
+      continue;
+    }
     await sendYoutubeNotification(channel, displayName, e.id, e.title).catch((err) => {
       console.error(`[YOUTUBE_NOTIFY] Envoi echoue (${displayName} ${e.id}):`, err?.message || err);
     });

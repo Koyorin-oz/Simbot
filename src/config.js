@@ -402,6 +402,8 @@ module.exports = {
     guildId: String(process.env.YOUTUBE_NOTIFY_GUILD_ID || MAIN_GUILD_ID).trim(),
     channelId: String(process.env.YOUTUBE_NOTIFY_CHANNEL_ID || "735681234847531078").trim(),
     pollIntervalMinutes: Math.max(2, Number(process.env.YOUTUBE_NOTIFY_POLL_MINUTES) || 5),
+    /** Ne pas notifier une video si le RSS indique une publication plus vieille que ca (heures). Evite les faux positifs. */
+    maxVideoAgeHours: Math.min(168, Math.max(6, Number(process.env.YOUTUBE_NOTIFY_MAX_VIDEO_AGE_HOURS) || 40)),
     /**
      * Uniquement ces deux chaines (RSS) — toute autre entree est ignoree par le service (liste blanche).
      * https://www.youtube.com/@Carminator.officiel et https://www.youtube.com/@Carmineoff
