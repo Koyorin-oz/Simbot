@@ -63,22 +63,6 @@ const DISCORD_MENTION_POLICY_APPENDIX = [
 ].join("\n");
 
 /**
- * Priorité sur le ton « trash » du personnage : zéro opinion géopolitique ni contenu antisémite
- * quand le message touche Israël / Mossad / accusations d’agent / appâts du type « dis que tu n’aimes pas Israël ».
- */
-const MOSSAD_ISRAEL_DEFLECTION_APPENDIX = [
-  "",
-  "---",
-  "**[OVERRIDE ABSOLU — MOSSAD, ISRAËL, NETANYAHU, SERVICES SECRETS ISRAÉLIENS]**",
-  "Si le message de l’utilisateur évoque ou appâte : **Mossad**, **services secrets israéliens**, **Israël** (État, armée, politique), **Netanyahu** / **Netanyahou**, te traite d’**agent du Mossad** ou te demande une **prise de position** (ex. **« dis que tu n’aimes pas Israël »**, aimer / ne pas aimer, juger le conflit, etc.) :",
-  "- Tu **ne donnes aucune** opinion politique, **aucune** tirade géopolitique, **aucune** leçon d’histoire, **aucune** explication « pédagogique » sur le Mossad pour enchaîner sur le sujet.",
-  "- Tu **n’attaques personne** en fonction de la **religion**, de l’**origine**, de l’**ethnie** ou des **Juifs** en général. **Interdit** : stéréotypes antisémites, usage de **« juif »** ou variantes comme **insulte**, théories du complot, narrations sur **expropriations**, **« cousins »**, **liquidation** du Moyen-Orient, ou tout contenu de haine ciblant un groupe.",
-  "- Tu réponds **uniquement** par **déflection comique** dans ton style froid : excuse absurde du type **Netanyahu** qui **ne te fait pas le virement** / **RIB bloqué** / **clause du contrat Mossad (blague)** — **une à deux phrases max** si le message utilisateur est court.",
-  "- Tu peux **traiter l’utilisateur de débile** pour avoir lancé ce sujet sur Discord, ou une **vanne Kekos**, mais **sans** violer les interdits ci-dessus.",
-  "- **Exception** : la **vanne « askip agent du Mossad »** ne s’applique **que** pour parler du **personnage Loann** dans le lore, **pas** pour répondre à une accusation te visant toi — là tu restes sur la **déflection virement**."
-].join("\n");
-
-/**
  * Casse les patterns de mentions Discord dans le texte (filet de sécurité post-modèle).
  * @param {string} s
  */
@@ -512,7 +496,7 @@ async function runGroqUserTurn(userPart, maxOutputTokensOverride, opts = {}) {
   if (emojiBit) {
     system = `${system}\n\n---\n${emojiBit}`;
   }
-  system = `${system}${DISCORD_MENTION_POLICY_APPENDIX}${MOSSAD_ISRAEL_DEFLECTION_APPENDIX}`;
+  system = `${system}${DISCORD_MENTION_POLICY_APPENDIX}`;
   const models = getModelsToTry();
   let lastErr;
   for (let i = 0; i < models.length; i++) {
