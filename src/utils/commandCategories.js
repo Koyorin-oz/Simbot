@@ -45,7 +45,6 @@ const MODERATION_COMMANDS = new Set([
   "salon-verrou",
   "profil-moderateur",
   "sanction-lister",
-  "settings-auto-moderation"
 ]);
 
 function classifyCommand(commandName) {

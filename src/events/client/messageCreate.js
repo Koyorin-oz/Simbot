@@ -18,14 +18,6 @@ const {
 const { generateGeminiPingReply, formatGeminiErrorForUser } = require("../../services/geminiService");
 const { logApiError } = require("../../utils/botLogger");
 const { handlePrefixSnipeEdit } = require("../../utils/prefixSnipeEditHandler");
-const {
-  getGuildAutoModPayload,
-  findViolation,
-  normalizeForMatch,
-  isAutoModExemptMember
-} = require("../../services/autoModService");
-const { shouldBlockLinksForMessage } = require("../../services/linkFilterService");
-const { sendAutoModDeletionNotice } = require("../../utils/autoModDeletionNotice");
 const { rememberMessage } = require("../../services/snipeEditCacheService");
 
 const AUTO_REPLY_COOLDOWN_MS = 15_000;
@@ -50,40 +42,6 @@ module.exports = {
     }
     if (isFrozen()) return;
     if (message.author.bot) return;
-
-    try {
-      const payload = await getGuildAutoModPayload(client.prisma, message.guild.id);
-      const member =
-        message.member || (await message.guild.members.fetch(message.author.id).catch(() => null));
-
-      const ignoredCh = new Set(payload.ignoredChannelIds || []);
-      const skipAutoModHere = ignoredCh.has(message.channel.id);
-
-      if (!skipAutoModHere) {
-        if (payload.enabled && payload.categories.length > 0 && String(message.content || "").trim()) {
-          if (!isAutoModExemptMember(member)) {
-            const norm = normalizeForMatch(message.content);
-            if (findViolation(norm, payload)) {
-              const uid = message.author.id;
-              const ch = message.channel;
-              await message.delete().catch(() => null);
-              await sendAutoModDeletionNotice(ch, uid, "word", client);
-              return;
-            }
-          }
-        }
-
-        if (shouldBlockLinksForMessage(message, member, payload, config.linkPolicy)) {
-          const uid = message.author.id;
-          const ch = message.channel;
-          await message.delete().catch(() => null);
-          await sendAutoModDeletionNotice(ch, uid, "link", client);
-          return;
-        }
-      }
-    } catch (e) {
-      logApiError("AUTOMOD_OR_LINK_MSG", e, { maxDetailChars: 200 });
-    }
 
     const content = (message.content || "").toLowerCase();
     const normalized = content.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
