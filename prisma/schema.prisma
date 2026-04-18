@@ -174,9 +174,11 @@ model IaPingDedup {
 
 /** Auto-modération par serveur : interrupteur global. */
 model AutoModGuild {
-  guildId   String   @id
-  enabled   Boolean  @default(false)
-  updatedAt DateTime @updatedAt
+  guildId             String   @id
+  enabled             Boolean  @default(false)
+  /** JSON tableau de snowflakes de salons : auto-mod mots + liens ignorés dans ces salons. */
+  ignoredChannelIds   String   @default("[]")
+  updatedAt           DateTime @updatedAt
 }
 
 /**

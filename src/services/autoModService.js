@@ -6,7 +6,8 @@
  * @typedef {{
  *   enabled: boolean,
  *   categories: { id: number, name: string, terms: string[] }[],
- *   linkAllowlistTerms: string[]
+ *   linkAllowlistTerms: string[],
+ *   ignoredChannelIds: string[]
  * }} GuildAutoModPayload
  */
 
@@ -54,9 +55,49 @@ function parseWordsInput(raw) {
 
 function safeParseWordsJson(json) {
   try {
-    const arr = JSON.parse(json || "[]");
+    const raw = String(json || "");
+    if (raw.length > 2_000_000) return [];
+    const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
-    return arr.map((x) => String(x).trim()).filter(Boolean).slice(0, MAX_WORDS_PER_CATEGORY);
+    const cap = Math.min(arr.length, MAX_WORDS_PER_CATEGORY + 100);
+    const out = [];
+    const seen = new Set();
+    for (let i = 0; i < cap; i++) {
+      let x = String(arr[i]).trim();
+      if (!x) continue;
+      if (x.length > MAX_WORD_LEN) x = x.slice(0, MAX_WORD_LEN);
+      const key = x.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(x);
+      if (out.length >= MAX_WORDS_PER_CATEGORY) break;
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+const MAX_IGNORED_CHANNELS = 100;
+const SNOWFLAKE_RE = /^\d{17,20}$/;
+
+function parseIgnoredChannelIdsJson(raw) {
+  try {
+    const s = String(raw || "[]");
+    if (s.length > 50_000) return [];
+    const arr = JSON.parse(s);
+    if (!Array.isArray(arr)) return [];
+    const out = [];
+    const seen = new Set();
+    for (const x of arr.slice(0, MAX_IGNORED_CHANNELS + 20)) {
+      const id = String(x).trim();
+      if (!SNOWFLAKE_RE.test(id)) continue;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+      if (out.length >= MAX_IGNORED_CHANNELS) break;
+    }
+    return out;
   } catch {
     return [];
   }
@@ -94,13 +135,13 @@ async function getGuildAutoModPayload(prisma, guildId) {
 
   const categories = rows.map((r) => ({
     id: r.id,
-    name: r.name,
+    name: String(r.name || "").slice(0, 80),
     terms: safeParseWordsJson(r.words)
   }));
 
   const catsClean = categories.map((c) => ({
     id: c.id,
-    name: c.name,
+    name: c.name.slice(0, 80),
     terms: c.terms.filter(Boolean)
   }));
 
@@ -108,10 +149,13 @@ async function getGuildAutoModPayload(prisma, guildId) {
     .filter((c) => isLinkAllowlistCategoryName(c.name))
     .flatMap((c) => c.terms);
 
+  const ignoredChannelIds = parseIgnoredChannelIdsJson(guildRow?.ignoredChannelIds);
+
   const payload = {
     enabled: Boolean(guildRow?.enabled),
     categories: catsClean,
-    linkAllowlistTerms
+    linkAllowlistTerms,
+    ignoredChannelIds
   };
 
   cache.set(guildId, { at: now, payload });
@@ -200,10 +244,66 @@ async function deleteCategoryByName(prisma, guildId, categoryName) {
 async function setGuildAutoModEnabled(prisma, guildId, enabled) {
   await prisma.autoModGuild.upsert({
     where: { guildId },
-    create: { guildId, enabled },
+    create: { guildId, enabled, ignoredChannelIds: "[]" },
     update: { enabled }
   });
   invalidateGuildCache(guildId);
+}
+
+/**
+ * Remplace la liste des salons exclus (auto-mod mots + liens).
+ * @param {import("@prisma/client").PrismaClient} prisma
+ * @param {string} guildId
+ * @param {string[]} channelIds
+ */
+async function setGuildAutoModIgnoredChannelIds(prisma, guildId, channelIds) {
+  const unique = [];
+  const seen = new Set();
+  for (const id of channelIds) {
+    const x = String(id || "").trim();
+    if (!SNOWFLAKE_RE.test(x)) continue;
+    if (seen.has(x)) continue;
+    seen.add(x);
+    unique.push(x);
+    if (unique.length >= MAX_IGNORED_CHANNELS) break;
+  }
+  const json = JSON.stringify(unique);
+  await prisma.autoModGuild.upsert({
+    where: { guildId },
+    create: { guildId, enabled: false, ignoredChannelIds: json },
+    update: { ignoredChannelIds: json }
+  });
+  invalidateGuildCache(guildId);
+}
+
+/**
+ * @param {import("@prisma/client").PrismaClient} prisma
+ * @param {string} guildId
+ * @param {string} channelId
+ */
+async function addAutoModIgnoredChannel(prisma, guildId, channelId) {
+  const payload = await getGuildAutoModPayload(prisma, guildId);
+  const set = new Set(payload.ignoredChannelIds);
+  if (set.has(channelId)) return { added: false, count: set.size };
+  if (set.size >= MAX_IGNORED_CHANNELS) {
+    throw new Error(`Limite de ${MAX_IGNORED_CHANNELS} salons exclus atteinte. Retire-en un avant.`);
+  }
+  set.add(channelId);
+  await setGuildAutoModIgnoredChannelIds(prisma, guildId, [...set]);
+  return { added: true, count: set.size };
+}
+
+/**
+ * @param {import("@prisma/client").PrismaClient} prisma
+ * @param {string} guildId
+ * @param {string} channelId
+ */
+async function removeAutoModIgnoredChannel(prisma, guildId, channelId) {
+  const payload = await getGuildAutoModPayload(prisma, guildId);
+  const set = new Set(payload.ignoredChannelIds);
+  const had = set.delete(channelId);
+  await setGuildAutoModIgnoredChannelIds(prisma, guildId, [...set]);
+  return { removed: Boolean(had), count: set.size };
 }
 
 const { PermissionFlagsBits } = require("discord.js");
@@ -230,9 +330,13 @@ module.exports = {
   upsertCategoryWords,
   deleteCategoryByName,
   setGuildAutoModEnabled,
+  setGuildAutoModIgnoredChannelIds,
+  addAutoModIgnoredChannel,
+  removeAutoModIgnoredChannel,
   invalidateGuildCache,
   isAutoModExemptMember,
   isLinkAllowlistCategoryName,
   MAX_CATEGORIES_PER_GUILD,
-  MAX_WORDS_PER_CATEGORY
+  MAX_WORDS_PER_CATEGORY,
+  MAX_IGNORED_CHANNELS
 };

@@ -74,17 +74,31 @@ async function refreshPanelMessage(interaction, client) {
   const embed = buildAutoModEmbed(payload);
   const components = buildAutoModRows(payload);
   const data = { embeds: [embed], components };
-  if (interaction.deferred) {
-    await interaction.message?.edit(data).catch((err) => logApiError("AUTOMOD_REFRESH", err, { maxDetailChars: 300 }));
-    return;
-  }
-  await interaction.update(data).catch(async (err) => {
-    if (err?.code === 10062 && interaction.message?.editable) {
-      await interaction.message.edit(data).catch(() => null);
-    } else {
-      logApiError("AUTOMOD_REFRESH", err, { maxDetailChars: 300 });
+
+  try {
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.update(data);
+      return;
     }
-  });
+    if (interaction.message && typeof interaction.message.edit === "function") {
+      await interaction.message.edit(data);
+      return;
+    }
+    await interaction.editReply(data);
+  } catch (err) {
+    const code = err?.code;
+    if (code === 10008 || code === 10062) {
+      await interaction
+        .followUp({
+          content:
+            "Impossible de mettre à jour le panneau (message supprimé ou interaction expirée). Relance `/settings-auto-moderation panel`.",
+          flags: MessageFlags.Ephemeral
+        })
+        .catch(() => null);
+      return;
+    }
+    logApiError("AUTOMOD_REFRESH", err, { maxDetailChars: 300 });
+  }
 }
 
 /**
@@ -131,13 +145,15 @@ async function handleAutoModInteraction(client, interaction) {
       const payload = await getGuildAutoModPayload(client.prisma, interaction.guildId);
       const chunks = [];
       for (const c of payload.categories) {
-        const preview = c.terms.slice(0, 40).join(", ");
-        const more = c.terms.length > 40 ? ` … (+${c.terms.length - 40})` : "";
-        chunks.push(`**${c.name}** (${c.terms.length}) : ${preview || "—"}${more}`);
+        const preview = c.terms.slice(0, 35).join(", ");
+        const more = c.terms.length > 35 ? ` … (+${c.terms.length - 35})` : "";
+        const nm = String(c.name).slice(0, 55);
+        chunks.push(`**${nm}** (${c.terms.length}) : ${preview || "—"}${more}`.slice(0, 320));
       }
       const body = chunks.length ? chunks.join("\n\n") : "_Aucune catégorie._";
+      const head = "## Listes auto-mod\n";
       await interaction.reply({
-        content: `## Listes auto-mod\n${body}`.slice(0, 3900),
+        content: `${head}${body}`.slice(0, 2000),
         flags: MessageFlags.Ephemeral
       });
       return true;

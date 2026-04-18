@@ -56,25 +56,30 @@ module.exports = {
       const member =
         message.member || (await message.guild.members.fetch(message.author.id).catch(() => null));
 
-      if (payload.enabled && payload.categories.length > 0 && String(message.content || "").trim()) {
-        if (!isAutoModExemptMember(member)) {
-          const norm = normalizeForMatch(message.content);
-          if (findViolation(norm, payload)) {
-            const uid = message.author.id;
-            const ch = message.channel;
-            await message.delete().catch(() => null);
-            await sendAutoModDeletionNotice(ch, uid, "word", client);
-            return;
+      const ignoredCh = new Set(payload.ignoredChannelIds || []);
+      const skipAutoModHere = ignoredCh.has(message.channel.id);
+
+      if (!skipAutoModHere) {
+        if (payload.enabled && payload.categories.length > 0 && String(message.content || "").trim()) {
+          if (!isAutoModExemptMember(member)) {
+            const norm = normalizeForMatch(message.content);
+            if (findViolation(norm, payload)) {
+              const uid = message.author.id;
+              const ch = message.channel;
+              await message.delete().catch(() => null);
+              await sendAutoModDeletionNotice(ch, uid, "word", client);
+              return;
+            }
           }
         }
-      }
 
-      if (shouldBlockLinksForMessage(message, member, payload, config.linkPolicy)) {
-        const uid = message.author.id;
-        const ch = message.channel;
-        await message.delete().catch(() => null);
-        await sendAutoModDeletionNotice(ch, uid, "link", client);
-        return;
+        if (shouldBlockLinksForMessage(message, member, payload, config.linkPolicy)) {
+          const uid = message.author.id;
+          const ch = message.channel;
+          await message.delete().catch(() => null);
+          await sendAutoModDeletionNotice(ch, uid, "link", client);
+          return;
+        }
       }
     } catch (e) {
       logApiError("AUTOMOD_OR_LINK_MSG", e, { maxDetailChars: 200 });

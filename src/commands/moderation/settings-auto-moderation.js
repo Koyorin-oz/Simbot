@@ -1,5 +1,12 @@
-const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require("discord.js");
-const { getGuildAutoModPayload, deleteCategoryByName, setGuildAutoModEnabled } = require("../../services/autoModService");
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags, ChannelType } = require("discord.js");
+const {
+  getGuildAutoModPayload,
+  deleteCategoryByName,
+  setGuildAutoModEnabled,
+  addAutoModIgnoredChannel,
+  removeAutoModIgnoredChannel,
+  MAX_IGNORED_CHANNELS
+} = require("../../services/autoModService");
 const { buildAutoModEmbed, buildAutoModRows } = require("../../utils/autoModPanel");
 
 module.exports = {
@@ -16,6 +23,43 @@ module.exports = {
         .addStringOption((o) =>
           o.setName("categorie").setDescription("Nom exact ou proche de la catégorie").setRequired(true)
         )
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("salon-ignorer")
+        .setDescription("Exclure un salon : plus de filtre mots ni liens (auto-mod)")
+        .addChannelOption((o) =>
+          o
+            .setName("salon")
+            .setDescription("Salon texte / thread / annonces")
+            .setRequired(true)
+            .addChannelTypes(
+              ChannelType.GuildText,
+              ChannelType.GuildAnnouncement,
+              ChannelType.PublicThread,
+              ChannelType.PrivateThread
+            )
+        )
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("salon-autoriser")
+        .setDescription("Retirer un salon de la liste d exclusion auto-mod")
+        .addChannelOption((o) =>
+          o
+            .setName("salon")
+            .setDescription("Salon a retirer de la liste")
+            .setRequired(true)
+            .addChannelTypes(
+              ChannelType.GuildText,
+              ChannelType.GuildAnnouncement,
+              ChannelType.PublicThread,
+              ChannelType.PrivateThread
+            )
+        )
+    )
+    .addSubcommand((s) =>
+      s.setName("salons-ignores-liste").setDescription("Liste des salons exclus de l auto-mod")
     )
     .addSubcommand((s) => s.setName("activer").setDescription("Activer la suppression auto des messages"))
     .addSubcommand((s) => s.setName("desactiver").setDescription("Désactiver l’auto-mod")),
@@ -38,12 +82,57 @@ module.exports = {
       const payload = await getGuildAutoModPayload(client.prisma, guildId);
       const chunks = [];
       for (const c of payload.categories) {
-        const preview = c.terms.slice(0, 60).join(", ");
-        const more = c.terms.length > 60 ? ` … (+${c.terms.length - 60})` : "";
-        chunks.push(`**${c.name}** (${c.terms.length}) : ${preview || "—"}${more}`);
+        const preview = c.terms.slice(0, 40).join(", ");
+        const more = c.terms.length > 40 ? ` … (+${c.terms.length - 40})` : "";
+        const nm = String(c.name).slice(0, 55);
+        chunks.push(`**${nm}** (${c.terms.length}) : ${preview || "—"}${more}`.slice(0, 340));
       }
       const body = chunks.length ? chunks.join("\n\n") : "_Aucune catégorie._";
-      await interaction.editReply({ content: `## Listes auto-mod\n${body}`.slice(0, 3900) });
+      await interaction.editReply({ content: `## Listes auto-mod\n${body}`.slice(0, 2000) });
+      return;
+    }
+
+    if (sub === "salon-ignorer") {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const ch = interaction.options.getChannel("salon", true);
+      try {
+        const { added, count } = await addAutoModIgnoredChannel(client.prisma, guildId, ch.id);
+        await interaction.editReply({
+          content: added
+            ? `Salon ${ch} ajouté à l’exclusion auto-mod (**${count}** / ${MAX_IGNORED_CHANNELS}).`
+            : `Ce salon était déjà exclu (**${count}** salon(s)).`
+        });
+      } catch (e) {
+        await interaction.editReply({ content: String(e?.message || e).slice(0, 2000) });
+      }
+      return;
+    }
+
+    if (sub === "salon-autoriser") {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const ch = interaction.options.getChannel("salon", true);
+      const { removed, count } = await removeAutoModIgnoredChannel(client.prisma, guildId, ch.id);
+      await interaction.editReply({
+        content: removed
+          ? `Salon ${ch} retiré de l’exclusion (**${count}** salon(s) restants).`
+          : `Ce salon n’était pas dans la liste d’exclusion.`
+      });
+      return;
+    }
+
+    if (sub === "salons-ignores-liste") {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const payload = await getGuildAutoModPayload(client.prisma, guildId);
+      const ids = payload.ignoredChannelIds || [];
+      if (!ids.length) {
+        await interaction.editReply({ content: "_Aucun salon exclu._ Utilise `salon-ignorer`." });
+        return;
+      }
+      const lines = ids.slice(0, 40).map((id) => `• <#${id}>`);
+      const more = ids.length > 40 ? `\n… et ${ids.length - 40} autre(s)` : "";
+      await interaction.editReply({
+        content: `## Salons exclus (auto-mod)\n${lines.join("\n")}${more}`.slice(0, 2000)
+      });
       return;
     }
 
