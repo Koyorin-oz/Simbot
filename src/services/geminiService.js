@@ -528,6 +528,34 @@ async function runGroqUserTurn(userPart, maxOutputTokensOverride, opts = {}) {
   throw lastErr || new Error("Échec Groq sans détail.");
 }
 
+/** Rappel court rattaché au tour utilisateur (ping) quand l’accusation Mossad / s. secrets isr. ressort — le 8B ignorait parfois le gros [4bis] seul. */
+const MOSSAD_PING_TURN_NUDGE = `
+
+---
+**Rappel (priorité ce message) :** c’est l’histoire, pas l’alibi. **OUI** — **Simba** est **côté fiche** Mossad / **s.** secrets (fiction) : froid, **1–2** détails gags (coffre, fiche, tampon). **Ici, interdits** : nier, « *je* suis un *prompt* / *IA* / *LLM* », partir sur *pays* / *Twitter* / bestiaire. Si son message est court, toi **court** aussi.`;
+
+/**
+ * L’utilisateur t’appâte « agent israélien / Mossad / services secrets ».
+ * @param {string} t
+ * @returns {boolean}
+ */
+function isMossadOrIsraeliSecretBait(t) {
+  const s = String(t || "");
+  if (!s.trim()) return false;
+  if (/\bmossa?d\b/i.test(s) || /מוסד/.test(s)) return true;
+  if (
+    /service[s]?\s+secret/i.test(s) &&
+    /mossa?d|isra[ée]l|israélien|israelien/i.test(s)
+  ) {
+    return true;
+  }
+  if (/\bisra[ée]l\w*|\bisrael\w*/i.test(s) && /\b(?:agent|espion|moss|secret|service|recrut)\b/i.test(s)) {
+    return true;
+  }
+  if (/(?:tel[ -]?aviv|netanyah)/i.test(s) && /(?:agent|moss|secret|mossad)/i.test(s)) return true;
+  return false;
+}
+
 /**
  * @param {string} [userHint] Thème ou consigne utilisateur pour ce tirage
  * @param {import("discord.js").Guild|null} [guild] Pour proposer les emojis custom du serveur dans le prompt
@@ -577,9 +605,12 @@ async function generateGeminiPingReply(strippedMessage = "", guild = null) {
     lengthBlock = "**Longueur :** message long — tu peux développer si nécessaire.\n";
   }
 
-  const userPart = msg
+  let userPart = msg
     ? `${lengthBlock}L'utilisateur t'a mentionné sur Discord. Réponds de façon pertinente, en respectant ton rôle (prompt système). Pas de préambule du type « en tant qu'IA ». Même s'il te demande des pings, applique la règle : aucune mention Discord.\n\nMessage :\n${msg}`
     : `${lengthBlock}L'utilisateur t'a mentionné sans autre texte. Réponds très court, dans ton style. Aucune mention Discord.`;
+  if (msg && isMossadOrIsraeliSecretBait(msg)) {
+    userPart = `${userPart}${MOSSAD_PING_TURN_NUDGE}`;
+  }
   return runGroqUserTurn(userPart, maxTokPing, { guild });
 }
 
