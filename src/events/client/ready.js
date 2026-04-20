@@ -21,8 +21,19 @@ function startVoiceGainTicker(client) {
     for (const guild of client.guilds.cache.values()) {
       for (const channel of guild.channels.cache.values()) {
         if (!channel.isVoiceBased()) continue;
+
+        // On ne recompense que si >= 2 humains presents dans le salon vocal.
+        // (un gars seul -> pas de LP/SP/SC, meme micro ouvert)
+        let humanCount = 0;
+        for (const m of channel.members.values()) {
+          if (!m.user?.bot) humanCount += 1;
+          if (humanCount >= 2) break;
+        }
+        if (humanCount < 2) continue;
+
         for (const [memberId, member] of channel.members) {
           if (member.user.bot) continue;
+          // Micro coupe (self ou server) OU casque coupe -> pas de gain.
           if (member.voice?.selfMute || member.voice?.serverMute || member.voice?.deaf) continue;
           // eslint-disable-next-line no-await-in-loop
           const updated = await addActivityGain(client.prisma, guild.id, memberId, config.economy.voiceGain);
