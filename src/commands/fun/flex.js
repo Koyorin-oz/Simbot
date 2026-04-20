@@ -3,7 +3,9 @@ const path = require("node:path");
 const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder, MessageFlags } = require("discord.js");
 const { deferPublic } = require("../../utils/slashDefer");
 
-const ALLOWED_CHANNEL_IDS = new Set(["1357819532416123071", "735810600348680212", "1486780068121546882"]);
+/** Salon unique : tout membre qui y a accès (overwrite / rôles) peut utiliser /flex. */
+const FLEX_CHANNEL_ID = "1357819532416123071";
+const ALLOWED_CHANNEL_IDS = new Set([FLEX_CHANNEL_ID]);
 const FLEX_GIF_URL = "https://i.imgur.com/3tVNmmQ.gif";
 
 /** Mascotte optionnelle : dépose `assets/flex-mascot.png` sur le serveur (Pebble), sinon miniature = le GIF. */
@@ -26,7 +28,7 @@ module.exports = {
     if (!ALLOWED_CHANNEL_IDS.has(interaction.channelId)) {
       await interaction.reply({
         content:
-          "Utilise **/flex** uniquement dans <#1357819532416123071>, <#735810600348680212> ou <#1486780068121546882> (tout le monde peut le faire dans ces salons).",
+          `Utilise **/flex** uniquement dans <#${FLEX_CHANNEL_ID}> (tout membre qui a accès à ce salon peut l’utiliser).`,
         flags: MessageFlags.Ephemeral
       });
       return;
