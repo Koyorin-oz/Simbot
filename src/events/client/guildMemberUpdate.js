@@ -29,8 +29,23 @@ module.exports = {
 
     const formatRole = (role) => `<@&${role.id}> (\`${role.name}\` / \`${role.id}\`)`;
     const lines = [`**Membre :** ${newMember.user.tag} (<@${newMember.id}>)`];
-    if (added.size) lines.push(`**Roles ajoutes :** ${added.map(formatRole).join(", ")}`);
-    if (removed.size) lines.push(`**Roles retires :** ${removed.map(formatRole).join(", ")}`);
+
+    /**
+     * On n'affiche que le/les roles CHANGES lors de cet event (diff old vs new),
+     * jamais la liste complete des roles du membre.
+     * Si plusieurs roles ajoutes/retires en meme temps (onboarding, auto-role, bulk bot),
+     * on ne montre que le 1er + compteur « +N autres » pour garder un log propre.
+     */
+    if (added.size) {
+      const first = added.first();
+      const extra = added.size > 1 ? ` *(+${added.size - 1} autre(s) ajoute(s) en meme temps)*` : "";
+      lines.push(`**Role ajoute :** ${formatRole(first)}${extra}`);
+    }
+    if (removed.size) {
+      const first = removed.first();
+      const extra = removed.size > 1 ? ` *(+${removed.size - 1} autre(s) retire(s) en meme temps)*` : "";
+      lines.push(`**Role retire :** ${formatRole(first)}${extra}`);
+    }
     if (nicknameChanged) {
       lines.push(`**Pseudo avant :** ${oldNick ?? "*(aucun)*"}`);
       lines.push(`**Pseudo apres :** ${newNick ?? "*(aucun)*"}`);
