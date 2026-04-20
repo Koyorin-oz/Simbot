@@ -67,6 +67,16 @@ function logRssErrorThrottled(sourceKey, displayName, message) {
 const ALLOWED_NOTIFY_HANDLES = new Set(["carmineoff", "carminator.officiel"]);
 
 /**
+ * Override du ping par handle (@handle normalise, sans @, minuscules).
+ * Si present, on mentionne ce role au lieu de @everyone.
+ * - @Carminator.officiel -> role 1492528126960468088
+ * - @Carmineoff          -> (absent) => @everyone comme avant
+ */
+const NOTIFY_PING_ROLE_BY_HANDLE = new Map([
+  ["carminator.officiel", "1492528126960468088"]
+]);
+
+/**
  * Jamais de notifs pour ces UC / handles (ex. https://www.youtube.com/@keketos = "kekos", deja confondu avec Carmine par erreur de scrape).
  */
 const BLOCKED_NOTIFY_CHANNEL_IDS = new Set(["UCm-QUW51xALsYPv_DnUc40A"]);
@@ -222,11 +232,25 @@ function thumbnailUrl(videoId) {
 
 /**
  * Meme structure que NotifEye : texte + embed rouge (auteur YouTube, nom chaine, titre cliquable) + bouton.
+ * @param {string} displayName
+ * @param {string} videoId
+ * @param {string} title
+ * @param {{ pingRoleId?: string | null, handle?: string | null }} [opts]
+ *   - pingRoleId : si fourni, on mentionne <@&id> au lieu de @everyone.
+ *   - handle     : alternative, on deduit pingRoleId via NOTIFY_PING_ROLE_BY_HANDLE.
  */
-function buildYoutubeNotificationPayload(displayName, videoId, title) {
+function buildYoutubeNotificationPayload(displayName, videoId, title, opts = {}) {
   const url = watchUrl(videoId);
   const short = youtuBeUrl(videoId);
-  const content = `@everyone\n**${displayName}** vient de sortir une nouvelle vidéo ! ALLEZ LA VOIR, c'est un banger. 🤩\n${short}`;
+
+  let pingRoleId = opts.pingRoleId ? String(opts.pingRoleId).trim() : "";
+  if (!pingRoleId && opts.handle) {
+    const h = String(opts.handle).replace(/^@/, "").trim().toLowerCase();
+    pingRoleId = NOTIFY_PING_ROLE_BY_HANDLE.get(h) || "";
+  }
+
+  const mention = pingRoleId ? `<@&${pingRoleId}>` : "@everyone";
+  const content = `${mention}\n**${displayName}** vient de sortir une nouvelle vidéo ! ALLEZ LA VOIR, c'est un banger. 🤩\n${short}`;
 
   const titleSafe = escapeForMarkdownLinkTitle(title);
   const embed = new EmbedBuilder()
@@ -239,16 +263,20 @@ function buildYoutubeNotificationPayload(displayName, videoId, title) {
     new ButtonBuilder().setLabel("Watch Video").setStyle(ButtonStyle.Link).setURL(url)
   );
 
+  const allowedMentions = pingRoleId
+    ? { parse: [], roles: [pingRoleId] }
+    : { parse: ["everyone"] };
+
   return {
     content,
     embeds: [embed],
     components: [row],
-    allowedMentions: { parse: ["everyone"] }
+    allowedMentions
   };
 }
 
-async function sendYoutubeNotification(channel, displayName, videoId, title) {
-  const payload = buildYoutubeNotificationPayload(displayName, videoId, title);
+async function sendYoutubeNotification(channel, displayName, videoId, title, opts = {}) {
+  const payload = buildYoutubeNotificationPayload(displayName, videoId, title, opts);
   await channel.send(payload);
 }
 
@@ -309,14 +337,16 @@ async function resolveSources(sources) {
     }
     out.push({
       sourceKey: id,
-      displayName: String(s.displayName || "YouTube").slice(0, 80)
+      displayName: String(s.displayName || "YouTube").slice(0, 80),
+      handle: handleNorm,
+      pingRoleId: NOTIFY_PING_ROLE_BY_HANDLE.get(handleNorm) || null
     });
   }
   return out;
 }
 
 async function pollOneSource(client, prisma, channel, source) {
-  const { sourceKey, displayName } = source;
+  const { sourceKey, displayName, handle, pingRoleId } = source;
   let xml;
   try {
     xml = await fetchYoutubeRssXml(sourceKey);
@@ -368,7 +398,10 @@ async function pollOneSource(client, prisma, channel, source) {
       );
       continue;
     }
-    await sendYoutubeNotification(channel, displayName, e.id, e.title).catch((err) => {
+    await sendYoutubeNotification(channel, displayName, e.id, e.title, {
+      handle,
+      pingRoleId
+    }).catch((err) => {
       console.error(`[YOUTUBE_NOTIFY] Envoi echoue (${displayName} ${e.id}):`, err?.message || err);
     });
   }
@@ -407,14 +440,15 @@ async function runYoutubeNotifyPoll(client) {
     return;
   }
 
-  if (!perms?.has(PermissionFlagsBits.MentionEveryone)) {
-    console.warn(
-      "[YOUTUBE_NOTIFY] Donne au bot **Mentionner @everyone** sur le salon notif, sinon les messages @everyone peuvent echouer."
-    );
-  }
-
   const resolved = await resolveSources(yn.sources || []);
   if (!resolved.length) return;
+
+  const needsEveryone = resolved.some((s) => !s.pingRoleId);
+  if (needsEveryone && !perms?.has(PermissionFlagsBits.MentionEveryone)) {
+    console.warn(
+      "[YOUTUBE_NOTIFY] Donne au bot **Mentionner @everyone** sur le salon notif, sinon les notifs @everyone (ex. Carmineoff) peuvent echouer."
+    );
+  }
 
   for (const src of resolved) {
     await pollOneSource(client, client.prisma, channel, src).catch((err) => {

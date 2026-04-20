@@ -86,20 +86,25 @@ module.exports = {
 
     const me = guild.members.me;
     const perms = ch.permissionsFor(me);
+    const needsEveryone = !source.pingRoleId;
     if (
       !perms?.has(PermissionFlagsBits.ViewChannel) ||
       !perms?.has(PermissionFlagsBits.SendMessages) ||
       !perms?.has(PermissionFlagsBits.EmbedLinks) ||
-      !perms?.has(PermissionFlagsBits.MentionEveryone)
+      (needsEveryone && !perms?.has(PermissionFlagsBits.MentionEveryone))
     ) {
       await interaction.editReply({
-        content:
-          "Le bot doit pouvoir envoyer embed, boutons et **Mentionner @everyone** dans **ce salon** (permissions du bot sur ce salon)."
+        content: needsEveryone
+          ? "Le bot doit pouvoir envoyer embed, boutons et **Mentionner @everyone** dans **ce salon** (permissions du bot sur ce salon)."
+          : "Le bot doit pouvoir envoyer embed et boutons dans **ce salon**."
       });
       return;
     }
 
-    const payload = buildYoutubeNotificationPayload(source.displayName, latest.id, latest.title);
+    const payload = buildYoutubeNotificationPayload(source.displayName, latest.id, latest.title, {
+      handle: source.handle,
+      pingRoleId: source.pingRoleId
+    });
     let msg;
     try {
       msg = await ch.send(payload);
