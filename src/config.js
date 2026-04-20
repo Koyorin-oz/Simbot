@@ -383,8 +383,22 @@ module.exports = {
      * `channelId` optionnel (recommande) : evite un mauvais UC scrape depuis le HTML YouTube.
      */
     sources: [
-      { handle: "Carminator.officiel", displayName: "Carminator", channelId: "UCFwHronrvO5k4Iyp4jm4sxw" },
-      { handle: "Carmineoff", displayName: "Carmineoff", channelId: "UCzYVs0LTrd6265AIkl-vZlA" }
+      {
+        handle: "Carminator.officiel",
+        displayName: "Carminator",
+        channelId: "UCFwHronrvO5k4Iyp4jm4sxw",
+        /** Ping du role a la place de @everyone (override possible via .env). */
+        pingRoleId: String(
+          process.env.YOUTUBE_NOTIFY_CARMINATOR_ROLE_ID || "1492528126960468088"
+        ).trim()
+      },
+      {
+        handle: "Carmineoff",
+        displayName: "Carmineoff",
+        channelId: "UCzYVs0LTrd6265AIkl-vZlA",
+        /** Vide -> @everyone conserve. */
+        pingRoleId: String(process.env.YOUTUBE_NOTIFY_CARMINEOFF_ROLE_ID || "").trim()
+      }
     ]
   }
 };

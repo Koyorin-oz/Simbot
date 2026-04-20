@@ -9,12 +9,10 @@ const OWNER_BYPASS_ID = "965984018216665099";
 /**
  * Discord limite fortement POST /users/@me/channels (ouverture MP) : trop de parallelisme
  * = 429 en rafale puis echecs en chaine. On reste prudent ; le retry ci-dessous gere le reste.
+ * (sans image on peut se permettre un poil plus de parallelisme, mais on reste raisonnable.)
  */
-const CONCURRENCY_TEXT = 2;
-/** Avec fichier : un seul envoi a la fois (buffer copie + upload). */
-const CONCURRENCY_FILE = 1;
+const CONCURRENCY = 2;
 const BATCH_PAUSE_MS = 950;
-const BATCH_PAUSE_FILE_MS = 1400;
 
 /** Mise a jour du message d'avancement (moins souvent = moins de latence). */
 const EDIT_PROGRESS_EVERY = 55;
@@ -31,14 +29,6 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isProbablyImage(att) {
-  if (!att) return false;
-  const ct = String(att.contentType || "").toLowerCase();
-  if (ct.startsWith("image/")) return true;
-  const n = String(att.name || "").toLowerCase();
-  return /\.(png|jpe?g|gif|webp|avif)$/i.test(n);
-}
-
 function ensureProgressDir() {
   try {
     fs.mkdirSync(PROGRESS_DIR, { recursive: true });
@@ -51,11 +41,8 @@ function progressFilePath(guildId, hash) {
   return path.join(PROGRESS_DIR, `${guildId}-${hash}.json`);
 }
 
-function hashPayload(guildId, texte, image) {
-  const imgPart = image
-    ? `${image.id}|${String(image.name || "")}|${String(image.url || "")}`
-    : "";
-  const raw = `${guildId}\n${texte}\n${imgPart}`;
+function hashPayload(guildId, texte) {
+  const raw = `${guildId}\n${texte}`;
   return crypto.createHash("sha256").update(raw, "utf8").digest("hex").slice(0, 28);
 }
 
@@ -125,35 +112,51 @@ function describeSendError(e) {
 }
 
 /**
- * @param {import("discord.js").GuildMember} member
- * @param {() => import("discord.js").BaseMessageOptions} buildPayload Options fraiches par tentative (buffers fichiers).
+ * Codes Discord non-retryables cote utilisateur (MP fermes, bloque, compte supprime).
+ * On les compte comme `skip` (pas un bug du bot) et on les ajoute a la progression
+ * pour ne pas retenter sans cesse — la prochaine vague les ignorera.
  */
-async function sendMemberDm(member, buildPayload) {
+const USER_UNREACHABLE_API_CODES = new Set([50007, 50013, 10013]);
+
+/** @param {import("discord.js").GuildMember} member */
+async function sendMemberDm(member, texte) {
   const user = member.user;
-  if (!user) return { ok: false, code: "NO_USER", msg: "Membre sans user (cache)" };
+  if (!user) return { ok: false, unreachable: true, code: "NO_USER", msg: "Membre sans user (cache)" };
+
+  const payload = {
+    content: texte,
+    allowedMentions: { parse: [] }
+  };
 
   const maxAttempts = 8;
   let lastErr = null;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      await user.send(buildPayload());
+      await user.send(payload);
       return { ok: true };
     } catch (e) {
       lastErr = e;
+      const apiCode = e?.rawError?.code ?? e?.code;
+      if (USER_UNREACHABLE_API_CODES.has(apiCode)) {
+        return { ok: false, unreachable: true, code: apiCode, msg: describeSendError(e) };
+      }
       if (isTransientHttpError(e) && attempt < maxAttempts - 1) {
-        const wait = e?.status === 429 || e?.statusCode === 429 ? retryAfterMs(e) : 1200 + attempt * 400;
+        const wait =
+          e?.status === 429 || e?.statusCode === 429 ? retryAfterMs(e) : 1200 + attempt * 400;
         await sleep(wait);
         continue;
       }
       return {
         ok: false,
-        code: e?.rawError?.code ?? e?.code ?? e?.status,
+        unreachable: false,
+        code: apiCode ?? e?.status,
         msg: describeSendError(e)
       };
     }
   }
   return {
     ok: false,
+    unreachable: false,
     code: lastErr?.rawError?.code ?? lastErr?.code,
     msg: describeSendError(lastErr)
   };
@@ -177,17 +180,14 @@ module.exports = {
     .addStringOption((o) =>
       o
         .setName("message")
-        .setDescription("Texte du MP (obligatoire si pas d'image)")
-        .setRequired(false)
+        .setDescription("Texte du MP (obligatoire)")
+        .setRequired(true)
         .setMaxLength(2000)
-    )
-    .addAttachmentOption((o) =>
-      o.setName("image").setDescription("Image a joindre au MP (optionnel)").setRequired(false)
     )
     .addBooleanOption((o) =>
       o
         .setName("eviter_doublons")
-        .setDescription("Reprendre sans renvoyer aux deja MP (meme message+image+serveur). Defaut: oui")
+        .setDescription("Reprendre sans renvoyer aux deja MP (meme message+serveur). Defaut: oui")
         .setRequired(false)
     )
     .addBooleanOption((o) =>
@@ -207,7 +207,8 @@ module.exports = {
 
     const targetGuildId = interaction.options.getString("serveur_cible", true);
     const targetGuild =
-      client.guilds.cache.get(targetGuildId) || (await client.guilds.fetch(targetGuildId).catch(() => null));
+      client.guilds.cache.get(targetGuildId) ||
+      (await client.guilds.fetch(targetGuildId).catch(() => null));
     if (!targetGuild) {
       await interaction.reply({
         content: "Le bot n'est pas present sur le serveur cible (ou ID invalide).",
@@ -231,32 +232,12 @@ module.exports = {
       return;
     }
 
-    const texteRaw = interaction.options.getString("message");
-    const texte = texteRaw != null ? String(texteRaw).trim() : "";
-    const image = interaction.options.getAttachment("image");
-    const avoidDup = interaction.options.getBoolean("eviter_doublons") !== false;
-    const newCampaign = interaction.options.getBoolean("nouvelle_campagne") === true;
+    const texteRaw = interaction.options.getString("message", true);
+    const texte = String(texteRaw || "").trim();
 
-    if (!texte && !image) {
+    if (!texte) {
       await interaction.reply({
-        content: "Indique au moins un **message** ou une **image**.",
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
-
-    if (image && !isProbablyImage(image)) {
-      await interaction.reply({
-        content:
-          "La piece jointe ne ressemble pas a une **image** (PNG, JPEG, GIF, WebP). Envoie une image ou retire le fichier.",
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
-
-    if (image && image.size > 8 * 1024 * 1024) {
-      await interaction.reply({
-        content: "Image trop lourde (max **8 Mo** recommande pour les MP).",
+        content: "Indique un **message** (texte non vide).",
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -266,17 +247,22 @@ module.exports = {
 
     const guild = targetGuild;
     try {
+      /** Force un fetch complet (GUILD_MEMBERS intent requis). Sinon on n'a que les membres en cache. */
       await guild.members.fetch();
     } catch (e) {
       await interaction.editReply({
-        content: `Impossible de charger les membres : ${String(e?.message || e).slice(0, 400)}`
+        content:
+          `Impossible de charger les membres (intent **GUILD_MEMBERS** requis) : ${String(e?.message || e).slice(0, 400)}`
       });
       return;
     }
 
     ensureProgressDir();
-    const pHash = hashPayload(guild.id, texte, image);
+    const pHash = hashPayload(guild.id, texte);
     const progressPath = progressFilePath(guild.id, pHash);
+
+    const avoidDup = interaction.options.getBoolean("eviter_doublons") !== false;
+    const newCampaign = interaction.options.getBoolean("nouvelle_campagne") === true;
 
     if (newCampaign) deleteProgressFile(progressPath);
 
@@ -296,58 +282,17 @@ module.exports = {
       await interaction.editReply({
         content:
           skippedDup > 0
-            ? `Tous les **${skippedDup}** humains de ce serveur sont deja dans la progression pour ce contenu. Mets **nouvelle_campagne: oui** pour tout renvoyer, ou change le texte / l'image.`
+            ? `Tous les **${skippedDup}** humains de ce serveur sont deja dans la progression pour ce contenu. Mets **nouvelle_campagne: oui** pour tout renvoyer, ou change le texte.`
             : "Aucun membre humain a contacter."
       });
       return;
     }
 
-    /** @type {{ attachment: Buffer; name: string }[] | null} */
-    let filesFromBuffer = null;
-    if (image) {
-      try {
-        const res = await fetch(image.url);
-        if (!res.ok) {
-          await interaction.editReply({
-            content: `Impossible de telecharger l'image HTTP **${res.status}**. Reessaie ou renvoie l'image.`
-          });
-          return;
-        }
-        const buf = Buffer.from(await res.arrayBuffer());
-        filesFromBuffer = [{ attachment: buf, name: image.name || "image.png" }];
-      } catch (e) {
-        await interaction.editReply({
-          content: `Erreur telechargement image : ${String(e?.message || e).slice(0, 350)}`
-        });
-        return;
-      }
-    }
-
-    /** Buffer image brute (copiee a chaque envoi pour eviter races en parallele). */
-    const imageBuf = filesFromBuffer?.[0]?.attachment ?? null;
-    const imageName = filesFromBuffer?.[0]?.name ?? "image.png";
-
-    const buildPayload = () => {
-      /** @type {import("discord.js").BaseMessageOptions} */
-      const o = { allowedMentions: { parse: [] } };
-      if (texte) o.content = texte;
-      if (imageBuf) o.files = [{ attachment: Buffer.from(imageBuf), name: imageName }];
-      return o;
-    };
-
-    const probe = buildPayload();
-    if (!probe.content && !probe.files) {
-      await interaction.editReply({ content: "Payload MP invalide (ni texte ni fichier)." });
-      return;
-    }
-
-    const concurrency = filesFromBuffer ? CONCURRENCY_FILE : CONCURRENCY_TEXT;
-    const batchPause = filesFromBuffer ? BATCH_PAUSE_FILE_MS : BATCH_PAUSE_MS;
-
-    /** IDs reussis sur cette execution + historique charge */
+    /** IDs traites (reussis OU injoignables definitivement) + historique charge. */
     const sentIds = new Set(alreadySent);
     let ok = 0;
     let fail = 0;
+    let skip = 0;
     let aborted = false;
     const t0 = Date.now();
     let processed = 0;
@@ -357,7 +302,7 @@ module.exports = {
     const failSamples = [];
 
     const flushIfNeeded = () => {
-      const n = ok + fail;
+      const n = ok + fail + skip;
       if (n - lastFlush >= FLUSH_IDS_EVERY) {
         lastFlush = n;
         try {
@@ -368,18 +313,23 @@ module.exports = {
       }
     };
 
-    for (let i = 0; i < toSend.length; i += concurrency) {
+    for (let i = 0; i < toSend.length; i += CONCURRENCY) {
       if (Date.now() - t0 > MAX_RUN_MS) {
         aborted = true;
         break;
       }
-      const batch = toSend.slice(i, i + concurrency);
-      const results = await Promise.all(batch.map((m) => sendMemberDm(m, buildPayload)));
+      const batch = toSend.slice(i, i + CONCURRENCY);
+      // eslint-disable-next-line no-await-in-loop
+      const results = await Promise.all(batch.map((m) => sendMemberDm(m, texte)));
       for (let j = 0; j < batch.length; j++) {
         const m = batch[j];
         const r = results[j];
         if (r?.ok) {
           ok += 1;
+          sentIds.add(m.id);
+        } else if (r?.unreachable) {
+          // MP fermes / compte parti / permissions : on marque comme traite pour ne pas retenter a chaque relance.
+          skip += 1;
           sentIds.add(m.id);
         } else {
           fail += 1;
@@ -402,15 +352,16 @@ module.exports = {
             content:
               `Envoi… **${processed}/${total}** cette vague (${totalMembers} humains sur le serveur` +
               (skippedDup ? `, **${skippedDup}** deja contactes avant — exclus` : "") +
-              `). Reussis **${ok}**, echecs **${fail}**.` +
+              `). Reussis **${ok}**, MP fermes/injoignables **${skip}**, erreurs techniques **${fail}**.` +
               (failSamples.length && ok === 0 && processed <= EDIT_PROGRESS_EVERY
                 ? `\n> Exemples d'erreur : ${failSamples.map((s) => `\`${s.slice(0, 90)}\``).join(" · ")}`
                 : "")
           })
           .catch(() => null);
       }
-      if (i + concurrency < toSend.length) {
-        await sleep(batchPause);
+      if (i + CONCURRENCY < toSend.length) {
+        // eslint-disable-next-line no-await-in-loop
+        await sleep(BATCH_PAUSE_MS);
       }
     }
 
@@ -427,9 +378,10 @@ module.exports = {
       `Serveur : **${guild.name}** (\`${guild.id}\`)`,
       `Humains sur le serveur : **${totalMembers}**`,
       avoidDup && skippedDup ? `Deja contactes avant (exclus) : **${skippedDup}**` : null,
-      `Cette vague — traites : **${ok + fail}**`,
+      `Cette vague — traites : **${ok + skip + fail}**`,
       `MP envoyes : **${ok}**`,
-      `Echecs (MP fermes, bot bloque, etc.) : **${fail}**`
+      `MP fermes / compte parti / bot bloque (normal) : **${skip}**`,
+      `Erreurs techniques (a retenter) : **${fail}**`
     ].filter(Boolean);
     if (failSamples.length && fail > 0) {
       lines.push("", "**Exemples d'erreurs API** (pour diagnostic) :");
@@ -440,12 +392,12 @@ module.exports = {
     if (aborted) {
       lines.push(
         "",
-        "Arret anticipe (fenetre Discord ~15 min). **Relance la meme commande** (meme texte, image, serveur) : avec **eviter_doublons** (defaut), seuls ceux pas encore MP recevront le message."
+        "Arret anticipe (fenetre Discord ~15 min). **Relance la meme commande** (meme texte, meme serveur) : avec **eviter_doublons** (defaut), seuls ceux pas encore traites recevront le message."
       );
     } else if (finishedAll && fail > 0) {
       lines.push(
         "",
-        "Progression **enregistree** sur le serveur : relance pour retenter les echecs sans renvoyer aux deja MP. **nouvelle_campagne: oui** pour tout effacer et repartir de zero."
+        "Progression **enregistree** : relance pour retenter les **erreurs techniques** sans renvoyer aux deja MP. **nouvelle_campagne: oui** pour tout effacer et repartir de zero."
       );
     } else if (finishedAll) {
       lines.push(

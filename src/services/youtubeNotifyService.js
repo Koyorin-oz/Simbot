@@ -335,11 +335,16 @@ async function resolveSources(sources) {
       );
       continue;
     }
+    const explicitPingRoleId =
+      s.pingRoleId && String(s.pingRoleId).trim() ? String(s.pingRoleId).trim() : "";
+    const pingRoleId =
+      explicitPingRoleId || NOTIFY_PING_ROLE_BY_HANDLE.get(handleNorm) || null;
+
     out.push({
       sourceKey: id,
       displayName: String(s.displayName || "YouTube").slice(0, 80),
       handle: handleNorm,
-      pingRoleId: NOTIFY_PING_ROLE_BY_HANDLE.get(handleNorm) || null
+      pingRoleId
     });
   }
   return out;
@@ -398,6 +403,11 @@ async function pollOneSource(client, prisma, channel, source) {
       );
       continue;
     }
+    console.log(
+      `[YOUTUBE_NOTIFY] Ping ${displayName} (@${handle || "?"}) -> ${
+        pingRoleId ? `role <@&${pingRoleId}>` : "@everyone"
+      } [video ${e.id}]`
+    );
     await sendYoutubeNotification(channel, displayName, e.id, e.title, {
       handle,
       pingRoleId

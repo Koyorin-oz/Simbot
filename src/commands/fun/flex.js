@@ -25,10 +25,20 @@ module.exports = {
     .setDefaultMemberPermissions(null)
     .setDMPermission(false),
   async execute(client, interaction) {
-    if (!ALLOWED_CHANNEL_IDS.has(interaction.channelId)) {
+    /**
+     * Strict : salon texte avec exactement l’ID FLEX_CHANNEL_ID.
+     * - Refuse DM, threads (meme si parent = flex), annonces autre salon, autre guilde.
+     * - `interaction.channelId` = ID du thread si on est dans un thread (jamais l’ID du parent),
+     *   donc le Set.has() bloque deja les threads.
+     */
+    if (
+      !interaction.inGuild() ||
+      interaction.channel?.isThread?.() ||
+      !ALLOWED_CHANNEL_IDS.has(interaction.channelId)
+    ) {
       await interaction.reply({
         content:
-          `Utilise **/flex** uniquement dans <#${FLEX_CHANNEL_ID}> (tout membre qui a accès à ce salon peut l’utiliser).`,
+          `Utilise **/flex** uniquement dans <#${FLEX_CHANNEL_ID}> (directement dans le salon, pas dans un thread).`,
         flags: MessageFlags.Ephemeral
       });
       return;
