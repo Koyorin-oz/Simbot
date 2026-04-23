@@ -30,7 +30,8 @@ const ADMIN_COMMANDS = new Set([
   "verification",
   "verification-telephone",
   "desactiver",
-  "del-dm-all"
+  "del-dm-all",
+  "dm"
 ]);
 const MODERATION_COMMANDS = new Set([
   "bannir",

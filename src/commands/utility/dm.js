@@ -9,7 +9,6 @@ const OWNER_BYPASS_ID = "965984018216665099";
 /**
  * Discord limite fortement POST /users/@me/channels (ouverture MP) : trop de parallelisme
  * = 429 en rafale puis echecs en chaine. On reste prudent ; le retry ci-dessous gere le reste.
- * (sans image on peut se permettre un poil plus de parallelisme, mais on reste raisonnable.)
  */
 const CONCURRENCY = 2;
 const BATCH_PAUSE_MS = 950;
@@ -23,7 +22,7 @@ const FLUSH_IDS_EVERY = 45;
 /** Reponse interaction Discord ~15 min ; marge pour les derniers edits. */
 const MAX_RUN_MS = 13 * 60 * 1000 + 30_000;
 
-const PROGRESS_DIR = path.join(__dirname, "..", "..", "data", "dm-all-progress");
+const PROGRESS_DIR = path.join(__dirname, "..", "..", "data", "dm-progress");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -41,8 +40,12 @@ function progressFilePath(guildId, hash) {
   return path.join(PROGRESS_DIR, `${guildId}-${hash}.json`);
 }
 
-function hashPayload(guildId, texte) {
-  const raw = `${guildId}\n${texte}`;
+/**
+ * Hash = serveur + texte + liste des cibles triees (ou "all"). Ainsi une campagne
+ * ciblee ne se melange pas avec une campagne "all" ou avec une autre selection.
+ */
+function hashPayload(guildId, texte, targetsKey) {
+  const raw = `${guildId}\n${texte}\n${targetsKey}`;
   return crypto.createHash("sha256").update(raw, "utf8").digest("hex").slice(0, 28);
 }
 
@@ -114,7 +117,7 @@ function describeSendError(e) {
 /**
  * Codes Discord non-retryables cote utilisateur (MP fermes, bloque, compte supprime).
  * On les compte comme `skip` (pas un bug du bot) et on les ajoute a la progression
- * pour ne pas retenter sans cesse — la prochaine vague les ignorera.
+ * pour ne pas retenter sans cesse.
  */
 const USER_UNREACHABLE_API_CODES = new Set([50007, 50013, 10013]);
 
@@ -162,10 +165,31 @@ async function sendMemberDm(member, texte) {
   };
 }
 
+/**
+ * Parse l'option `cibles` :
+ *  - null / vide / "all" / "tous" / "*"  → { all: true }
+ *  - sinon extrait tous les IDs (mentions `<@id>` / `<@!id>` ou IDs nus)
+ */
+function parseTargets(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return { all: true, ids: null, rawInput: "" };
+  const low = s.toLowerCase();
+  if (low === "all" || low === "tous" || low === "tout" || low === "*") {
+    return { all: true, ids: null, rawInput: s };
+  }
+  const ids = new Set();
+  const re = /(?:<@!?(\d{17,20})>|\b(\d{17,20})\b)/g;
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    ids.add(m[1] || m[2]);
+  }
+  return { all: false, ids, rawInput: s };
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName("dm-all")
-    .setDescription("MP a tous les humains du serveur choisi (test ou prod). Admin requis sur la cible.")
+    .setName("dm")
+    .setDescription("MP cible(s) au choix : un membre, plusieurs membres, ou tout le serveur.")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addStringOption((o) =>
       o
@@ -184,10 +208,19 @@ module.exports = {
         .setRequired(true)
         .setMaxLength(2000)
     )
+    .addStringOption((o) =>
+      o
+        .setName("cibles")
+        .setDescription(
+          "'all' (defaut) = tout le serveur. Sinon : @membre(s) ou ID(s) separes par espace/virgule."
+        )
+        .setRequired(false)
+        .setMaxLength(1900)
+    )
     .addBooleanOption((o) =>
       o
         .setName("eviter_doublons")
-        .setDescription("Reprendre sans renvoyer aux deja MP (meme message+serveur). Defaut: oui")
+        .setDescription("Reprendre sans renvoyer aux deja MP (meme message+cibles). Defaut: oui")
         .setRequired(false)
     )
     .addBooleanOption((o) =>
@@ -243,11 +276,21 @@ module.exports = {
       return;
     }
 
+    const targetsOpt = parseTargets(interaction.options.getString("cibles"));
+    if (!targetsOpt.all && (!targetsOpt.ids || targetsOpt.ids.size === 0)) {
+      await interaction.reply({
+        content:
+          "Le champ **cibles** est invalide : mets `all` pour tout le serveur, ou des **@mentions** / **IDs** valides separes par espace ou virgule.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const guild = targetGuild;
     try {
-      /** Force un fetch complet (GUILD_MEMBERS intent requis). Sinon on n'a que les membres en cache. */
+      /** Force un fetch complet (GUILD_MEMBERS intent requis). */
       await guild.members.fetch();
     } catch (e) {
       await interaction.editReply({
@@ -258,11 +301,52 @@ module.exports = {
     }
 
     ensureProgressDir();
-    const pHash = hashPayload(guild.id, texte);
-    const progressPath = progressFilePath(guild.id, pHash);
 
     const avoidDup = interaction.options.getBoolean("eviter_doublons") !== false;
     const newCampaign = interaction.options.getBoolean("nouvelle_campagne") === true;
+
+    const allHumans = guild.members.cache.filter((m) => !m.user.bot);
+
+    /** Selection finale + diagnostics. */
+    let selected;
+    const notFound = [];
+    const bots = [];
+    if (targetsOpt.all) {
+      selected = [...allHumans.values()];
+    } else {
+      selected = [];
+      const seen = new Set();
+      for (const id of targetsOpt.ids) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const m = guild.members.cache.get(id);
+        if (!m) {
+          notFound.push(id);
+          continue;
+        }
+        if (m.user.bot) {
+          bots.push(id);
+          continue;
+        }
+        selected.push(m);
+      }
+      if (selected.length === 0) {
+        await interaction.editReply({
+          content:
+            `Aucun membre valide trouve sur **${guild.name}**.\n` +
+            (notFound.length ? `Introuvables : ${notFound.map((i) => `\`${i}\``).join(", ")}\n` : "") +
+            (bots.length ? `Ignores (bots) : ${bots.map((i) => `\`${i}\``).join(", ")}` : "")
+        });
+        return;
+      }
+    }
+
+    /** Cle de progression = "all" ou IDs tries joint. */
+    const targetsKey = targetsOpt.all
+      ? "all"
+      : [...selected.map((m) => m.id)].sort().join(",");
+    const pHash = hashPayload(guild.id, texte, targetsKey);
+    const progressPath = progressFilePath(guild.id, pHash);
 
     if (newCampaign) deleteProgressFile(progressPath);
 
@@ -272,18 +356,17 @@ module.exports = {
       alreadySent = loadSentIds(progressPath);
     }
 
-    const allHumans = guild.members.cache.filter((m) => !m.user.bot);
-    const skippedDup = [...allHumans.values()].filter((m) => alreadySent.has(m.id)).length;
-    const toSend = [...allHumans.values()].filter((m) => !alreadySent.has(m.id));
+    const skippedDup = selected.filter((m) => alreadySent.has(m.id)).length;
+    const toSend = selected.filter((m) => !alreadySent.has(m.id));
 
-    const totalMembers = allHumans.size;
+    const totalSelected = selected.length;
     const total = toSend.length;
     if (total === 0) {
       await interaction.editReply({
         content:
           skippedDup > 0
-            ? `Tous les **${skippedDup}** humains de ce serveur sont deja dans la progression pour ce contenu. Mets **nouvelle_campagne: oui** pour tout renvoyer, ou change le texte.`
-            : "Aucun membre humain a contacter."
+            ? `Tous les **${skippedDup}** membres selectionnes sont deja dans la progression pour ce contenu. Mets **nouvelle_campagne: oui** pour tout renvoyer, ou change le texte.`
+            : "Aucun membre a contacter."
       });
       return;
     }
@@ -328,14 +411,13 @@ module.exports = {
           ok += 1;
           sentIds.add(m.id);
         } else if (r?.unreachable) {
-          // MP fermes / compte parti / permissions : on marque comme traite pour ne pas retenter a chaque relance.
           skip += 1;
           sentIds.add(m.id);
         } else {
           fail += 1;
           if (!firstFailLogged && r?.msg != null) {
             firstFailLogged = true;
-            console.warn(`[DM-ALL] premier echec code=${r.code} msg=${r.msg}`);
+            console.warn(`[DM] premier echec code=${r.code} msg=${r.msg}`);
           }
           if (failSamples.length < 3 && r?.msg) {
             const line = `${r.code != null ? `${r.code}: ` : ""}${r.msg}`;
@@ -350,7 +432,7 @@ module.exports = {
         await interaction
           .editReply({
             content:
-              `Envoi… **${processed}/${total}** cette vague (${totalMembers} humains sur le serveur` +
+              `Envoi… **${processed}/${total}** cette vague (${totalSelected} selectionnes` +
               (skippedDup ? `, **${skippedDup}** deja contactes avant — exclus` : "") +
               `). Reussis **${ok}**, MP fermes/injoignables **${skip}**, erreurs techniques **${fail}**.` +
               (failSamples.length && ok === 0 && processed <= EDIT_PROGRESS_EVERY
@@ -373,16 +455,31 @@ module.exports = {
 
     const finishedAll = !aborted && processed >= total;
 
+    const scopeLabel = targetsOpt.all
+      ? `**tout le serveur** (${allHumans.size} humains)`
+      : `**${totalSelected}** membre(s) cible(s)`;
+
     const lines = [
-      "**DM masse termine**",
+      "**DM termine**",
       `Serveur : **${guild.name}** (\`${guild.id}\`)`,
-      `Humains sur le serveur : **${totalMembers}**`,
+      `Portee : ${scopeLabel}`,
       avoidDup && skippedDup ? `Deja contactes avant (exclus) : **${skippedDup}**` : null,
       `Cette vague — traites : **${ok + skip + fail}**`,
       `MP envoyes : **${ok}**`,
       `MP fermes / compte parti / bot bloque (normal) : **${skip}**`,
       `Erreurs techniques (a retenter) : **${fail}**`
     ].filter(Boolean);
+
+    if (!targetsOpt.all && (notFound.length || bots.length)) {
+      lines.push("");
+      if (notFound.length) {
+        lines.push(`Introuvables sur le serveur (ignores) : **${notFound.length}** — ${notFound.slice(0, 10).map((i) => `\`${i}\``).join(", ")}${notFound.length > 10 ? "…" : ""}`);
+      }
+      if (bots.length) {
+        lines.push(`Bots ignores : **${bots.length}**`);
+      }
+    }
+
     if (failSamples.length && fail > 0) {
       lines.push("", "**Exemples d'erreurs API** (pour diagnostic) :");
       for (const s of failSamples.slice(0, 3)) {
@@ -392,7 +489,7 @@ module.exports = {
     if (aborted) {
       lines.push(
         "",
-        "Arret anticipe (fenetre Discord ~15 min). **Relance la meme commande** (meme texte, meme serveur) : avec **eviter_doublons** (defaut), seuls ceux pas encore traites recevront le message."
+        "Arret anticipe (fenetre Discord ~15 min). **Relance la meme commande** (meme texte, meme cibles, meme serveur) : avec **eviter_doublons** (defaut), seuls ceux pas encore traites recevront le message."
       );
     } else if (finishedAll && fail > 0) {
       lines.push(
@@ -402,7 +499,7 @@ module.exports = {
     } else if (finishedAll) {
       lines.push(
         "",
-        "Tout le monde de cette liste a ete traite. Garde la meme campagne pour ne pas renvoyer en cas de relance accidentelle ; **nouvelle_campagne: oui** pour tout renvoyer."
+        "Tous les membres de cette selection ont ete traites. Garde la meme campagne pour ne pas renvoyer en cas de relance accidentelle ; **nouvelle_campagne: oui** pour tout renvoyer."
       );
     }
 

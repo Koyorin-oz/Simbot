@@ -4,7 +4,7 @@ const path = require("path");
 /** Serveur principal La Carminauté (même valeur que `realServerIds.guildId`). */
 const MAIN_GUILD_ID = "735584468420657292";
 
-/** Serveur bot test (slashs + option `/dm-all`). Surcharge : `DISCORD_BOT_TEST_GUILD_ID`. */
+/** Serveur bot test (slashs + option `/dm`). Surcharge : `DISCORD_BOT_TEST_GUILD_ID`. */
 const BOT_TEST_GUILD_ID = String(process.env.DISCORD_BOT_TEST_GUILD_ID || "1354742163010752522").trim();
 
 /** Serveur cible pour channelSetup.json. Lit GUILD_ID ou DISCORD_GUILD_ID, sinon serveur principal. */
@@ -50,7 +50,7 @@ const privateRoomLobbyChannelIds = buildPrivateRoomLobbyChannelIds();
 module.exports = {
   /** ID fixe du serveur principal (surchargé par .env pour un serveur de test si besoin). */
   mainGuildId: MAIN_GUILD_ID,
-  /** ID du serveur de test du bot (deploy slash + cible `/dm-all`). */
+  /** ID du serveur de test du bot (deploy slash + cible `/dm`). */
   botTestGuildId: BOT_TEST_GUILD_ID,
   economy: {
     messageCooldownMs: 45_000,
