@@ -86,7 +86,7 @@ async function sendSanctionChannelFallback({ guild, user, embed }) {
 
     const thread = await channel.threads.create({
       name: threadName,
-      autoArchiveDuration: 1440,
+      autoArchiveDuration: 10080,
       type: ChannelType.PrivateThread,
       invitable: false,
       reason: "Notification de sanction (DM impossible)"
