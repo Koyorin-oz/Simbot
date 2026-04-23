@@ -1,4 +1,10 @@
-const { EmbedBuilder } = require("discord.js");
+const { EmbedBuilder, ChannelType } = require("discord.js");
+
+/**
+ * Salon ou sont crees les fils prives de notification quand un DM de sanction fail.
+ * Le staff doit avoir **Gerer les fils** (MANAGE_THREADS) sur ce salon pour voir / repondre.
+ */
+const SANCTION_FALLBACK_CHANNEL_ID = "738884759287103610";
 
 /** @typedef {"MUTE"|"WARN"|"KICK"} PostSanctionDmType */
 
@@ -55,8 +61,65 @@ async function trySendSanctionDm(user, embed) {
   return user.send({ embeds: [embed] }).then(() => true).catch(() => false);
 }
 
+/**
+ * Fallback quand le DM de sanction ne peut pas etre envoye (DM fermes / bot bloque / quarantaine).
+ * Cree un **fil prive** dans `SANCTION_FALLBACK_CHANNEL_ID`, y ajoute la cible (ce qui la ping),
+ * poste l'embed de sanction, puis **verrouille** le fil : la cible peut lire mais pas ecrire.
+ * Les membres du staff ayant **MANAGE_THREADS** sur le salon parent voient / repondent.
+ *
+ * @param {{ guild: import("discord.js").Guild, user: import("discord.js").User, embed: import("discord.js").EmbedBuilder }} p
+ * @returns {Promise<{ ok: boolean; threadId?: string; url?: string; reason?: string }>}
+ */
+async function sendSanctionChannelFallback({ guild, user, embed }) {
+  try {
+    if (!guild || !user) return { ok: false, reason: "missing_guild_or_user" };
+
+    const channel =
+      guild.channels.cache.get(SANCTION_FALLBACK_CHANNEL_ID) ||
+      (await guild.channels.fetch(SANCTION_FALLBACK_CHANNEL_ID).catch(() => null));
+    if (!channel || typeof channel.threads?.create !== "function") {
+      return { ok: false, reason: "channel_not_found_or_no_threads" };
+    }
+
+    const baseName = String(user.username || user.tag || user.id || "membre").slice(0, 60);
+    const threadName = `Sanction - ${baseName}`.slice(0, 100);
+
+    const thread = await channel.threads.create({
+      name: threadName,
+      autoArchiveDuration: 1440,
+      type: ChannelType.PrivateThread,
+      invitable: false,
+      reason: "Notification de sanction (DM impossible)"
+    });
+
+    await thread.members.add(user.id).catch(() => null);
+
+    await thread
+      .send({
+        content: `<@${user.id}>`,
+        embeds: [embed],
+        allowedMentions: { users: [user.id] }
+      })
+      .catch(() => null);
+
+    await thread
+      .setLocked(true, "Empecher la cible d'ecrire dans le fil de notification")
+      .catch(() => null);
+
+    return {
+      ok: true,
+      threadId: thread.id,
+      url: `https://discord.com/channels/${guild.id}/${thread.id}`
+    };
+  } catch (e) {
+    return { ok: false, reason: String(e?.message || e).slice(0, 200) };
+  }
+}
+
 module.exports = {
+  SANCTION_FALLBACK_CHANNEL_ID,
   buildPostSanctionDmEmbed,
   moderatorLabelForDm,
-  trySendSanctionDm
+  trySendSanctionDm,
+  sendSanctionChannelFallback
 };

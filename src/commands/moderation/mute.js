@@ -5,7 +5,8 @@ const { buildSanctionEmbed } = require("../../utils/sanctionEmbed");
 const {
   buildPostSanctionDmEmbed,
   moderatorLabelForDm,
-  trySendSanctionDm
+  trySendSanctionDm,
+  sendSanctionChannelFallback
 } = require("../../utils/sanctionDmNotice");
 const { deferPublic } = require("../../utils/slashDefer");
 const { assertCanSanctionMember, formatBotHierarchyBlockReason } = require("../../utils/staffSanctionHierarchy");
@@ -76,6 +77,18 @@ module.exports = {
     });
     const dmOk = await trySendSanctionDm(member.user, dmEmbed);
 
+    let fallbackLine = "";
+    if (!dmOk) {
+      const fb = await sendSanctionChannelFallback({
+        guild: interaction.guild,
+        user: member.user,
+        embed: dmEmbed
+      });
+      fallbackLine = fb.ok
+        ? ` Fil privé de notification créé : <#${fb.threadId}>.`
+        : ` Fil privé impossible (raison : \`${fb.reason}\`).`;
+    }
+
     const embed = buildSanctionEmbed({
       title: interaction.guild.name,
       targetLabel: `${member} (${member.user.tag})`,
@@ -84,7 +97,9 @@ module.exports = {
       endsAt
     });
     await interaction.editReply({
-      content: dmOk ? "MP de notification envoyé à la cible." : "MP impossible (DM fermés ou refusés), mute appliqué.",
+      content: dmOk
+        ? "MP de notification envoyé à la cible."
+        : `MP impossible (DM fermés ou refusés), mute appliqué.${fallbackLine}`,
       embeds: [embed]
     });
   }
