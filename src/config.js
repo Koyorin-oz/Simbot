@@ -158,11 +158,12 @@ module.exports = {
    * Deploiement : /dev-deployer ou `bienvenue_alt` / `tout`.
    */
   welcomeAlt: {
+    /** Salon ou est poste la carte Bienvenue Accueil (boutons ci-dessous = uniquement ce flux). */
     panelChannelId: "735656109980778566",
-    reglementChannelId: "1428410217170866177",
+    reglementChannelId: "735680597845868674",
     repertoireChannelId: "736505256178876496",
-    /** Lien « Ticket » sur la carte Accueil → salon du panel tickets processus d'accueil. */
-    ticketChannelId: "1428411994578620587"
+    /** Bouton Ticket sur la carte Accueil → ce salon (pas le panneau general). */
+    ticketChannelId: "740157072158621736"
   },
 
   /**
