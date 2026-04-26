@@ -9,8 +9,11 @@ const { logVerboseWarn } = require("../utils/botLogger");
  * Une clé `gsk_…` = toujours Groq. L’ancienne config pointait par erreur vers xAI → HTTP 400.
  *
  * API : POST https://api.groq.com/openai/v1/chat/completions
+ *
+ * Défaut : **openai/gpt-oss-20b** (meilleur rapport qualité/vitesse sur Groq en 2026) puis repli Llama.
+ * Pour forcer Gemma / autre : `GROQ_MODEL` + `GROQ_MODEL_FALLBACKS` (voir console Groq / liste models).
  */
-const DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant";
+const DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b";
 
 const GROQ_BASE_URL = String(process.env.GROQ_API_BASE || "https://api.groq.com/openai/v1").replace(/\/$/, "");
 
@@ -39,15 +42,15 @@ function getActiveDefaultPromptPath() {
 
 /** Prompt réinitialisé par `/ia-prompt defaut` (identique au fichier d’origine du repo). */
 const FACTORY_SYSTEM_PROMPT = [
-  "Tu es le cerveau absurde du serveur Discord « La Carminauté ». Tu réponds toujours en français.",
+  "Tu joues le personnage du bot « Simba » sur le serveur Discord « La Carminauté ». Tu réponds toujours en français.",
   "",
-  "Règles :",
-  "- Phrases courtes : 1 à 4 phrases max, ton décalé, drôle, parfois un peu noir ou absurde — le but est de faire une « dinguerie » mémorable, pas un roman.",
-  "- Pas de haine, pas de contenu illégal, pas de données personnelles inventées.",
-  "- Pas de markdown complexe : texte simple, émojis possibles avec parcimonie.",
-  "- Si l'utilisateur donne un thème ou une consigne, tu t'y plies tout en gardant ce ton.",
+  "Style :",
+  "- Phrases courtes (souvent 1 à 4), ton décalé ou absurde — une « dinguerie » mémorable, pas un roman.",
+  "- Pas de haine ciblée, pas de contenu illégal, pas de données personnelles inventées.",
+  "- Texte simple ; émojis avec parcimonie.",
+  "- Si l'utilisateur donne un thème, tu t'y plies en restant dans ce ton.",
   "",
-  "Discord — mentions (obligatoire) : jamais @everyone, @here, ni mention utilisateur/rôle/salon au format technique. Pour citer ces idées, utilise un point après @ (ex. @.everyone, @.Pseudo) pour ne pas ping."
+  "Discord — mentions : jamais @everyone, @here, ni mentions techniques <@…>, <@&…>, <#…>. Pour en parler sans ping : @.everyone, @.Pseudo, etc."
 ].join("\n");
 
 /** Injecté après tout prompt (fichier / .env) pour verrouiller le comportement. */
@@ -177,7 +180,8 @@ function resetSystemPromptFileToFactory() {
   writeSystemPromptFile(FACTORY_SYSTEM_PROMPT);
 }
 
-const BUILTIN_MODEL_FALLBACKS = ["llama-3.3-70b-versatile"];
+/** Dernier recours : Llama (qualité moindre que GPT-OSS / Qwen sur tâches courtes — gardé si quota ou 400). */
+const BUILTIN_MODEL_FALLBACKS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
 
 function collectErrorText(err) {
   if (!err) return "";
@@ -315,6 +319,37 @@ function extractOpenAiStyleErrorMessage(textBody, data, res) {
  * @param {string} user
  * @param {number} maxTokens
  */
+/**
+ * Paramètres de raisonnement Groq (chain-of-thought) — uniquement pour les modèles qui les supportent.
+ * @see https://console.groq.com/docs/reasoning
+ * @param {string} modelName
+ * @returns {Record<string, unknown>}
+ */
+function buildGroqReasoningParams(modelName) {
+  const m = String(modelName || "");
+  const out = {};
+  if (m.startsWith("openai/gpt-oss-")) {
+    const er = String(process.env.GROQ_REASONING_EFFORT || "medium").trim().toLowerCase();
+    out.reasoning_effort = ["low", "medium", "high"].includes(er) ? er : "medium";
+    /** `true` = le champ `reasoning` est aussi renvoyé (debug). En prod Discord on garde false. */
+    out.include_reasoning = String(process.env.GROQ_INCLUDE_REASONING || "").trim() === "1";
+    return out;
+  }
+  if (m.startsWith("qwen/qwen3-32b")) {
+    const eff = String(process.env.GROQ_QWEN_REASONING_EFFORT || "default").trim().toLowerCase();
+    out.reasoning_effort = eff === "none" ? "none" : "default";
+    const fmt = String(process.env.GROQ_QWEN_REASONING_FORMAT || "hidden").trim().toLowerCase();
+    out.reasoning_format = ["parsed", "raw", "hidden"].includes(fmt) ? fmt : "hidden";
+    return out;
+  }
+  return {};
+}
+
+function usesMaxCompletionTokens(modelName) {
+  const m = String(modelName || "");
+  return m.includes("gpt-oss") || m.startsWith("qwen/") || m.startsWith("openai/");
+}
+
 async function groqChatCompletion(modelName, system, user, maxTokens) {
   const key = getGroqApiKey();
   if (!key) {
@@ -326,6 +361,22 @@ async function groqChatCompletion(modelName, system, user, maxTokens) {
   const cap = Math.min(8192, Math.max(64, Number(maxTokens) || 380));
   const temp = Math.min(2, Math.max(0, Number(process.env.GROQ_TEMPERATURE || process.env.GROK_TEMPERATURE || process.env.GEMINI_TEMPERATURE || 1.05) || 1.05));
 
+  const model = String(modelName || DEFAULT_GROQ_MODEL).trim() || DEFAULT_GROQ_MODEL;
+  const body = {
+    model,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user }
+    ],
+    temperature: temp,
+    ...buildGroqReasoningParams(model)
+  };
+  if (usesMaxCompletionTokens(model)) {
+    body.max_completion_tokens = cap;
+  } else {
+    body.max_tokens = cap;
+  }
+
   const url = `${GROQ_BASE_URL}/chat/completions`;
   let res;
   try {
@@ -335,15 +386,7 @@ async function groqChatCompletion(modelName, system, user, maxTokens) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${key}`
       },
-      body: JSON.stringify({
-        model: String(modelName || DEFAULT_GROQ_MODEL).trim() || DEFAULT_GROQ_MODEL,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user }
-        ],
-        max_tokens: cap,
-        temperature: temp
-      })
+      body: JSON.stringify(body)
     });
   } catch (netErr) {
     const e = new Error(String(netErr?.message || netErr || "Erreur réseau (fetch)"));
@@ -441,7 +484,7 @@ function formatGeminiErrorForUser(err) {
     lower.includes("decommissioned")
   ) {
     return (
-      "**Modèle Groq inconnu ou retiré.** Mets par ex. `GROQ_MODEL=llama-3.1-8b-instant` ou `llama-3.3-70b-versatile` (liste : https://console.groq.com/docs/models ), puis redémarre."
+      "**Modèle Groq inconnu ou retiré.** Mets par ex. `GROQ_MODEL=openai/gpt-oss-20b` ou `llama-3.3-70b-versatile` (liste : https://console.groq.com/docs/models ), puis redémarre."
     );
   }
   if (lower.includes("api key") || raw.includes("401") || lower.includes("invalid") || lower.includes("unauthorized")) {
@@ -557,6 +600,41 @@ function isMossadOrIsraeliSecretBait(t) {
 }
 
 /**
+ * Ordonnance d’insulte / d’ « avis négatif » ciblant Israël, l’armée isr., l’état, etc. — [4bis] = vanne virement, pas pavé.
+ * @param {string} t
+ * @returns {boolean}
+ */
+function isNetanyahuPayrollJokeBait(t) {
+  const s = String(t || "");
+  if (!s.trim()) return false;
+  if (
+    !/isra[ée]l\w*|israé?li\w*|\bisrael\w*|\bts[ah]a?h?a?l\b|\bidf\b|netanyah|bibi|gaza|j[ée]rusalem|tel[-\s]*aviv|cisjordanie/i.test(
+      s
+    )
+  ) {
+    return false;
+  }
+  if (
+    /n[ée]gatif|d[ée]nigr|crach|bave\w*|insult\w*\s+.*(isr|gaza|arm[ée]e|tsa[hk]a?l|idf)|\bavis\s+n[ée]g/i.test(s)
+  ) {
+    return true;
+  }
+  if (
+    /(arm[ée]e|milita|tsa[hk]a?l|idf|d[ée]fense|solda)/i.test(s) &&
+    /(isra[ée]l\w*|\bts[ah]a?h?a?l\b|\bidf)/i.test(s) &&
+    /(horrible|merde|mauv|nul\w*|pourri\w*|n[ée]gat|crach|d[ée]teste|bave|insulte)/i.test(s)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+const NETANYAHU_PAYROLL_PING_NUDGE = `
+
+---
+**Rappel (priorité) :** l’utilisateur te pousse à **insulter** / à cracher un **avis négatif** sur l’**Israël** / l’**armée** (Tsahal, IDF) / l’**État** — c’est le cas **[4bis]**. **N’invente pas** le pavé ni la litanie d’insultes. **Uniquement** : « j’voudrais bien, mais Bibi m’a pris le virement / fiche de paie ce mois-ci » (à varier) ; **1 à 2** phrases, ton froid, **zéro** *essai* géo.`;
+
+/**
  * @param {string} [userHint] Thème ou consigne utilisateur pour ce tirage
  * @param {import("discord.js").Guild|null} [guild] Pour proposer les emojis custom du serveur dans le prompt
  * @returns {Promise<string>}
@@ -608,6 +686,10 @@ async function generateGeminiPingReply(strippedMessage = "", guild = null) {
   let userPart = msg
     ? `${lengthBlock}L'utilisateur t'a mentionné sur Discord. Réponds de façon pertinente, en respectant ton rôle (prompt système). Pas de préambule du type « en tant qu'IA ». Même s'il te demande des pings, applique la règle : aucune mention Discord.\n\nMessage :\n${msg}`
     : `${lengthBlock}L'utilisateur t'a mentionné sans autre texte. Réponds très court, dans ton style. Aucune mention Discord.`;
+  if (msg && isNetanyahuPayrollJokeBait(msg)) {
+    userPart = `${userPart}${NETANYAHU_PAYROLL_PING_NUDGE}`;
+    maxTokPing = Math.min(maxTokPing, 260);
+  }
   if (msg && isMossadOrIsraeliSecretBait(msg)) {
     userPart = `${userPart}${MOSSAD_PING_TURN_NUDGE}`;
   }
