@@ -1,6 +1,5 @@
 const {SlashCommandBuilder,
   ChannelType,
-  PermissionFlagsBits,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
@@ -11,7 +10,8 @@ module.exports = {
     .setName("give-away")
     .setDescription("Créer un giveaway via un pop-up")
     .setDMPermission(false)
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    /** Gate runtime : rôles COMMAND_MODERATION_ROLE_ID(S) ou admin serveur (voir interactionCreate). */
+    .setDefaultMemberPermissions(null)
     .addStringOption((o) =>
       o
         .setName("mode")

@@ -2,8 +2,8 @@ const { PermissionFlagsBits } = require("discord.js");
 
 /** Rôle : commandes **dev** + **admin** (visibilité + exécution côté bot). */
 const DEFAULT_ADMIN_DEV_COMMAND_ROLE_ID = "739948639300092055";
-/** Rôle : commandes **modération** (visibilité + exécution côté bot). */
-const DEFAULT_MODERATION_COMMAND_ROLE_ID = "736488084929118298";
+/** Rôles : commandes **modération** (visibilité + exécution côté bot) + `/give-away`. */
+const DEFAULT_MODERATION_COMMAND_ROLE_IDS = ["736488084929118298", "1125117876370669608"];
 /** Bypass runtime : meme acces que si la personne avait admin + roles staff (sans les avoir sur Discord). */
 const DEFAULT_COMMAND_OWNER_USER_IDS = ["965984018216665099", "1278372257483456603"];
 
@@ -37,12 +37,24 @@ function getAdminDevCommandRoleId() {
   return String(process.env.COMMAND_ADMIN_DEV_ROLE_ID || DEFAULT_ADMIN_DEV_COMMAND_ROLE_ID).trim();
 }
 
+/**
+ * Rôles autorisés pour la catégorie modération + création giveaway.
+ * - `COMMAND_MODERATION_ROLE_IDS` (virgules) : liste **exclusive** si definie.
+ * - Sinon `COMMAND_MODERATION_ROLE_ID` ou `COMMAND_STAFF_ROLE_ID` : **un seul** role.
+ * - Sinon : {@link DEFAULT_MODERATION_COMMAND_ROLE_IDS}
+ */
+function getModerationCommandRoleIdSet() {
+  const multi = String(process.env.COMMAND_MODERATION_ROLE_IDS || "").trim();
+  if (multi) return new Set(parseSnowflakeList(multi));
+  const single = String(process.env.COMMAND_MODERATION_ROLE_ID || process.env.COMMAND_STAFF_ROLE_ID || "").trim();
+  if (single && /^\d{17,20}$/.test(single)) return new Set([single]);
+  return new Set(DEFAULT_MODERATION_COMMAND_ROLE_IDS);
+}
+
+/** @returns {string} Premier ID du set (compat tickets / ancien code). */
 function getModerationCommandRoleId() {
-  return String(
-    process.env.COMMAND_MODERATION_ROLE_ID ||
-      process.env.COMMAND_STAFF_ROLE_ID ||
-      DEFAULT_MODERATION_COMMAND_ROLE_ID
-  ).trim();
+  const first = [...getModerationCommandRoleIdSet()][0];
+  return first ? String(first) : String(DEFAULT_MODERATION_COMMAND_ROLE_IDS[0]);
 }
 
 /** @deprecated Utiliser getModerationCommandRoleId — conservé pour anciens imports. */
@@ -81,6 +93,7 @@ module.exports = {
   getStaffCommandRoleId,
   getAdminDevCommandRoleId,
   getModerationCommandRoleId,
+  getModerationCommandRoleIdSet,
   getCommandOwnerBypassUserId,
   getCommandOwnerBypassUserIds,
   isCommandOwnerBypassUserId,

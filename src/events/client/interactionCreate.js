@@ -52,7 +52,7 @@ const { isEconomyPaused } = require("../../services/economyRuntimeService");
 const { logApiError } = require("../../utils/botLogger");
 const {
   getAdminDevCommandRoleId,
-  getModerationCommandRoleId,
+  getModerationCommandRoleIdSet,
   isCommandOwnerBypassUserId
 } = require("../../services/staffCommandPermissionsService");
 const { APPEAL_FORM_URL } = require("../../utils/ticketPanels");
@@ -95,7 +95,12 @@ function hasAdminDevSlashAccess(interaction) {
 
 function hasModerationSlashAccess(interaction) {
   if (isCommandOwnerBypassUserId(interaction.user?.id)) return true;
-  return Boolean(interaction.member?.roles?.cache?.has(getModerationCommandRoleId()));
+  const cache = interaction.member?.roles?.cache;
+  if (!cache) return false;
+  for (const rid of getModerationCommandRoleIdSet()) {
+    if (cache.has(rid)) return true;
+  }
+  return false;
 }
 
 function hasRequiredCommandPermissions(interaction, command) {
@@ -108,6 +113,13 @@ function hasRequiredCommandPermissions(interaction, command) {
   }
   if (cat === "moderation") {
     return hasModerationSlashAccess(interaction);
+  }
+  /** Slash sans perm Discord requise : gate runtime (rôles modération du bot ou admin serveur). */
+  if (interaction.commandName === "give-away") {
+    return (
+      hasModerationSlashAccess(interaction) ||
+      Boolean(interaction.memberPermissions?.has(PermissionFlagsBits.Administrator))
+    );
   }
   const raw = command?.data?.toJSON?.()?.default_member_permissions;
   if (!raw) return true;
@@ -524,8 +536,15 @@ module.exports = {
     }
 
     if (interaction.isModalSubmit() && interaction.customId.startsWith("ga:create:")) {
-      if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
-        await interaction.reply({ content: "Réservé aux membres avec **Gérer le serveur**.", flags: MessageFlags.Ephemeral });
+      const canCreateGiveaway =
+        hasModerationSlashAccess(interaction) ||
+        Boolean(interaction.memberPermissions?.has(PermissionFlagsBits.Administrator));
+      if (!canCreateGiveaway) {
+        await interaction.reply({
+          content:
+            "Réservé aux membres avec un **rôle modération** (SimBot) ou la permission **Administrateur**.",
+          flags: MessageFlags.Ephemeral
+        });
         return;
       }
 
