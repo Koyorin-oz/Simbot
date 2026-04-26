@@ -40,11 +40,24 @@ function progressFilePath(guildId, hash) {
 }
 
 /**
- * Hash = serveur + texte + liste des cibles triees (ou "all"). Ainsi une campagne
+ * Meme message « logique » = meme cle de progression (evite doublons si Discord/client
+ * normalise differemment les retours ligne ou espaces en fin).
+ */
+function normalizeTextForDedupeKey(s) {
+  return String(s || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\u00a0/g, " ")
+    .trimEnd()
+    .trimStart();
+}
+
+/**
+ * Hash = serveur + texte normalise + liste des cibles triees (ou "all"). Ainsi une campagne
  * ciblee ne se melange pas avec une campagne "all" ou avec une autre selection.
  */
-function hashPayload(guildId, texte, targetsKey) {
-  const raw = `${guildId}\n${texte}\n${targetsKey}`;
+function hashPayload(guildId, texteNorm, targetsKey) {
+  const raw = `${guildId}\n${texteNorm}\n${targetsKey}`;
   return crypto.createHash("sha256").update(raw, "utf8").digest("hex").slice(0, 28);
 }
 
@@ -96,14 +109,6 @@ function retryAfterMs(e) {
   return 3200;
 }
 
-function isTransientHttpError(e) {
-  const st = e?.status ?? e?.statusCode;
-  if (st === 429) return true;
-  if (st === 408 || st === 500 || st === 502 || st === 503 || st === 504) return true;
-  if (typeof st === "number" && st >= 520 && st <= 524) return true;
-  return false;
-}
-
 function describeSendError(e) {
   const st = e?.status ?? e?.statusCode;
   const api = e?.rawError?.code ?? e?.code;
@@ -130,7 +135,11 @@ async function sendMemberDm(member, texte) {
     allowedMentions: { parse: [] }
   };
 
-  const maxAttempts = 8;
+  /**
+   * Ne retenter que le **429** : sur 5xx/timeout, le MP peut deja etre parti — un 2e
+   * `user.send` = doublon garanti pour la meme campagne.
+   */
+  const maxAttempts = 6;
   let lastErr = null;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
@@ -142,10 +151,9 @@ async function sendMemberDm(member, texte) {
       if (USER_UNREACHABLE_API_CODES.has(apiCode)) {
         return { ok: false, unreachable: true, code: apiCode, msg: describeSendError(e) };
       }
-      if (isTransientHttpError(e) && attempt < maxAttempts - 1) {
-        const wait =
-          e?.status === 429 || e?.statusCode === 429 ? retryAfterMs(e) : 1200 + attempt * 400;
-        await sleep(wait);
+      const is429 = e?.status === 429 || e?.statusCode === 429;
+      if (is429 && attempt < maxAttempts - 1) {
+        await sleep(retryAfterMs(e));
         continue;
       }
       return {
@@ -266,6 +274,7 @@ module.exports = {
 
     const texteRaw = interaction.options.getString("message", true);
     const texte = String(texteRaw || "").trim();
+    const texteForHash = normalizeTextForDedupeKey(texte);
 
     if (!texte) {
       await interaction.reply({
@@ -340,11 +349,21 @@ module.exports = {
       }
     }
 
+    /** Meme utilisateur ne doit apparaitre qu'une fois (cache / ordre d'iteration). */
+    {
+      const seenMember = new Set();
+      selected = selected.filter((m) => {
+        if (seenMember.has(m.id)) return false;
+        seenMember.add(m.id);
+        return true;
+      });
+    }
+
     /** Cle de progression = "all" ou IDs tries joint. */
     const targetsKey = targetsOpt.all
       ? "all"
       : [...selected.map((m) => m.id)].sort().join(",");
-    const pHash = hashPayload(guild.id, texte, targetsKey);
+    const pHash = hashPayload(guild.id, texteForHash, targetsKey);
     const progressPath = progressFilePath(guild.id, pHash);
 
     if (newCampaign) deleteProgressFile(progressPath);
@@ -425,7 +444,15 @@ module.exports = {
         }
       }
       processed += batch.length;
-      flushIfNeeded();
+      if (avoidDup) {
+        try {
+          writeSentIds(progressPath, sentIds);
+        } catch {
+          /* ignore */
+        }
+      } else {
+        flushIfNeeded();
+      }
 
       if (processed % EDIT_PROGRESS_EVERY === 0 || processed === total) {
         await interaction
