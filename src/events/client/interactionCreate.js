@@ -53,12 +53,11 @@ const { logApiError } = require("../../utils/botLogger");
 const {
   getAdminDevCommandRoleId,
   getModerationCommandRoleId,
-  getCommandOwnerBypassUserId
+  isCommandOwnerBypassUserId
 } = require("../../services/staffCommandPermissionsService");
 const { APPEAL_FORM_URL } = require("../../utils/ticketPanels");
 const { getGuildLeaderboardRank } = require("../../services/leaderboardRankService");
 
-const OWNER_BYPASS_ID = getCommandOwnerBypassUserId();
 const VOTE_ALLOWED_ROLE_ID = "1401908829339390002";
 
 const ECONOMY_MUTATION_COMMANDS = new Set([
@@ -84,23 +83,23 @@ const ECONOMY_MUTATION_COMMANDS = new Set([
 
 function hasAdminAccess(interaction) {
   return (
-    interaction.user?.id === OWNER_BYPASS_ID ||
+    isCommandOwnerBypassUserId(interaction.user?.id) ||
     interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
   );
 }
 
 function hasAdminDevSlashAccess(interaction) {
-  if (interaction.user?.id === OWNER_BYPASS_ID) return true;
+  if (isCommandOwnerBypassUserId(interaction.user?.id)) return true;
   return Boolean(interaction.member?.roles?.cache?.has(getAdminDevCommandRoleId()));
 }
 
 function hasModerationSlashAccess(interaction) {
-  if (interaction.user?.id === OWNER_BYPASS_ID) return true;
+  if (isCommandOwnerBypassUserId(interaction.user?.id)) return true;
   return Boolean(interaction.member?.roles?.cache?.has(getModerationCommandRoleId()));
 }
 
 function hasRequiredCommandPermissions(interaction, command) {
-  if (interaction.user?.id === OWNER_BYPASS_ID) return true;
+  if (isCommandOwnerBypassUserId(interaction.user?.id)) return true;
   /** Pas de filtre staff : la commande vérifie seulement le salon dans son execute. */
   if (interaction.commandName === "flex") return true;
   const cat = classifyCommand(interaction.commandName);

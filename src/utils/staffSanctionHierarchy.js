@@ -2,12 +2,12 @@
  * Hiérarchie des sanctions = **celle de Discord** (Paramètres serveur → Rôles : plus haut dans la liste = plus de pouvoir).
  * Un modérateur ne peut pas sanctionner quelqu’un dont le **rôle le plus haut** est au-dessus ou au même niveau que le sien.
  *
- * À part : propriétaire du serveur et bypass `COMMAND_OWNER_USER_ID` peuvent tout faire (comme Discord).
+ * À part : propriétaire du serveur et bypass propriétaire commandes (`COMMAND_OWNER_USER_ID` / `COMMAND_OWNER_USER_IDS`) peuvent tout faire (comme Discord).
  *
  * Important : **timeout / ban / kick** sont appliqués **par le bot**. Le rôle **du bot** doit aussi être **au-dessus**
  * de la cible, sinon Discord refuse même si toi tu es admin — voir `formatBotHierarchyBlockReason`.
  */
-const { getCommandOwnerBypassUserId } = require("../services/staffCommandPermissionsService");
+const { isCommandOwnerBypassUserId } = require("../services/staffCommandPermissionsService");
 
 /**
  * @param {import("discord.js").GuildMember} moderator
@@ -19,8 +19,7 @@ const { getCommandOwnerBypassUserId } = require("../services/staffCommandPermiss
 function assertCanSanctionMember(moderator, targetMember, guild, actorUserId) {
   if (!moderator) return "Impossible de vérifier ton profil membre sur ce serveur.";
 
-  const ownerBypass = String(getCommandOwnerBypassUserId() || "").trim();
-  if (ownerBypass && actorUserId === ownerBypass) return null;
+  if (isCommandOwnerBypassUserId(actorUserId)) return null;
   if (guild.ownerId === actorUserId) return null;
 
   if (!targetMember) return null;

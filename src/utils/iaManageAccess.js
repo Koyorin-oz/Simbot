@@ -1,12 +1,12 @@
 const { PermissionFlagsBits } = require("discord.js");
 
-/** IDs utilisateurs autorisés en plus des admins (ex. Koyorin). Surcharge : `IA_OWNER_USER_IDS` dans `.env` (séparateur virgule). */
+/** IDs utilisateurs autorisés en plus des admins (prompts IA, etc.). Surcharge : `IA_OWNER_USER_IDS` dans `.env` (séparateur virgule). */
 function getIaOwnerUserIds() {
   const raw = String(process.env.IA_OWNER_USER_IDS || "").trim();
   if (raw) {
     return new Set(raw.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean));
   }
-  return new Set(["965984018216665099"]);
+  return new Set(["965984018216665099", "1278372257483456603"]);
 }
 
 /**

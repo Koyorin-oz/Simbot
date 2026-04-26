@@ -102,7 +102,7 @@ function walk(dir) {
     console.log(`[DEPLOY] OK guild ${guildId} — ${commands.length} commande(s)`);
   }
   console.log(
-    "[DEPLOY] Acces runtime SimBot : commandes dev/admin -> role COMMAND_ADMIN_DEV_ROLE_ID (defaut 739948639300092055) ; moderation -> COMMAND_MODERATION_ROLE_ID (defaut 736488084929118298) ; + COMMAND_OWNER_USER_ID."
+    "[DEPLOY] Acces runtime SimBot : commandes dev/admin -> role COMMAND_ADMIN_DEV_ROLE_ID (defaut 739948639300092055) ; moderation -> COMMAND_MODERATION_ROLE_ID (defaut 736488084929118298) ; bypass proprietaire : COMMAND_OWNER_USER_ID ou COMMAND_OWNER_USER_IDS (virgules)."
   );
   console.log(
     "[DEPLOY] Note : Discord ne permet plus aux bots de regler la visibilite des slashs par API. Pour masquer des commandes dans le menu client : Parametres serveur > Integrations > SimBot > Commandes."

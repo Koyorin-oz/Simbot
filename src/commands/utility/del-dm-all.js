@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags, ChannelType } = require("discord.js");
-const { getCommandOwnerBypassUserId } = require("../../services/staffCommandPermissionsService");
+const { isCommandOwnerBypassUserId } = require("../../services/staffCommandPermissionsService");
 
 const BETWEEN_CHANNELS_MS = 450;
 /** Suppression parallele de quelques messages du bot a la fois. */
@@ -104,8 +104,7 @@ module.exports = {
       return;
     }
 
-    const ownerId = getCommandOwnerBypassUserId();
-    const isOwner = interaction.user.id === ownerId;
+    const isOwner = isCommandOwnerBypassUserId(interaction.user.id);
     const isAdmin = Boolean(interaction.memberPermissions?.has(PermissionFlagsBits.Administrator));
     if (!isOwner && !isAdmin) {
       await interaction.reply({

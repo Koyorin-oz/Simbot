@@ -3,8 +3,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require("discord.js");
 const { mainGuildId, botTestGuildId } = require("../../config");
-
-const OWNER_BYPASS_ID = "965984018216665099";
+const { isCommandOwnerBypassUserId } = require("../../services/staffCommandPermissionsService");
 
 /**
  * Discord limite fortement POST /users/@me/channels (ouverture MP) : trop de parallelisme
@@ -251,7 +250,7 @@ module.exports = {
     }
 
     const canRun =
-      interaction.user.id === OWNER_BYPASS_ID ||
+      isCommandOwnerBypassUserId(interaction.user.id) ||
       (await targetGuild.members
         .fetch(interaction.user.id)
         .then((m) => m?.permissions?.has(PermissionFlagsBits.Administrator))

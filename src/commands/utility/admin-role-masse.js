@@ -4,12 +4,11 @@ const {SlashCommandBuilder,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle, MessageFlags} = require("discord.js");
-
-const OWNER_BYPASS_ID = "965984018216665099";
+const { isCommandOwnerBypassUserId } = require("../../services/staffCommandPermissionsService");
 
 function hasAccess(interaction) {
   return (
-    interaction.user?.id === OWNER_BYPASS_ID ||
+    isCommandOwnerBypassUserId(interaction.user?.id) ||
     interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
   );
 }

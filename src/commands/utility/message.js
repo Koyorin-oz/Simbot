@@ -1,9 +1,8 @@
 const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require("discord.js");
-
-const OWNER_BYPASS_ID = "965984018216665099";
+const { isCommandOwnerBypassUserId } = require("../../services/staffCommandPermissionsService");
 
 function hasStrictAdmin(interaction) {
-  if (interaction.user?.id === OWNER_BYPASS_ID) return true;
+  if (isCommandOwnerBypassUserId(interaction.user?.id)) return true;
   return Boolean(interaction.memberPermissions?.has(PermissionFlagsBits.Administrator));
 }
 

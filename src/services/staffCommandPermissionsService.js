@@ -4,7 +4,34 @@ const { PermissionFlagsBits } = require("discord.js");
 const DEFAULT_ADMIN_DEV_COMMAND_ROLE_ID = "739948639300092055";
 /** Rôle : commandes **modération** (visibilité + exécution côté bot). */
 const DEFAULT_MODERATION_COMMAND_ROLE_ID = "736488084929118298";
-const DEFAULT_COMMAND_OWNER_USER_ID = "965984018216665099";
+/** Bypass runtime : meme acces que si la personne avait admin + roles staff (sans les avoir sur Discord). */
+const DEFAULT_COMMAND_OWNER_USER_IDS = ["965984018216665099", "1278372257483456603"];
+
+function parseSnowflakeList(raw) {
+  return String(raw || "")
+    .split(/[,;\s]+/)
+    .map((s) => s.trim())
+    .filter((s) => /^\d{17,20}$/.test(s));
+}
+
+/**
+ * Ensemble des user IDs bypass.
+ * - `COMMAND_OWNER_USER_IDS` (virgules) : liste **exclusive** si definie.
+ * - Sinon `COMMAND_OWNER_USER_ID` : **un seul** ID (comportement historique).
+ * - Sinon : {@link DEFAULT_COMMAND_OWNER_USER_IDS}
+ */
+function getCommandOwnerBypassUserIdSet() {
+  const multi = String(process.env.COMMAND_OWNER_USER_IDS || "").trim();
+  if (multi) return new Set(parseSnowflakeList(multi));
+  const single = String(process.env.COMMAND_OWNER_USER_ID || "").trim();
+  if (single && /^\d{17,20}$/.test(single)) return new Set([single]);
+  return new Set(DEFAULT_COMMAND_OWNER_USER_IDS);
+}
+
+function isCommandOwnerBypassUserId(userId) {
+  if (!userId) return false;
+  return getCommandOwnerBypassUserIdSet().has(String(userId));
+}
 
 function getAdminDevCommandRoleId() {
   return String(process.env.COMMAND_ADMIN_DEV_ROLE_ID || DEFAULT_ADMIN_DEV_COMMAND_ROLE_ID).trim();
@@ -23,8 +50,14 @@ function getStaffCommandRoleId() {
   return getModerationCommandRoleId();
 }
 
+/** @deprecated Prefer {@link isCommandOwnerBypassUserId} — retourne un ID « representatif » (1er du set). */
 function getCommandOwnerBypassUserId() {
-  return String(process.env.COMMAND_OWNER_USER_ID || DEFAULT_COMMAND_OWNER_USER_ID).trim();
+  const first = [...getCommandOwnerBypassUserIdSet()][0];
+  return first ? String(first) : "";
+}
+
+function getCommandOwnerBypassUserIds() {
+  return [...getCommandOwnerBypassUserIdSet()];
 }
 
 /**
@@ -49,5 +82,7 @@ module.exports = {
   getAdminDevCommandRoleId,
   getModerationCommandRoleId,
   getCommandOwnerBypassUserId,
+  getCommandOwnerBypassUserIds,
+  isCommandOwnerBypassUserId,
   getStaffSlashDefaultMemberPermBigInt
 };
