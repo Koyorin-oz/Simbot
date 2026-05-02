@@ -59,6 +59,7 @@ const { APPEAL_FORM_URL } = require("../../utils/ticketPanels");
 const { getGuildLeaderboardRank } = require("../../services/leaderboardRankService");
 
 const VOTE_ALLOWED_ROLE_ID = "1401908829339390002";
+const MOD_PROFILE_ROLE_ID = "740999121812586567";
 
 const ECONOMY_MUTATION_COMMANDS = new Set([
   "quotidien",
@@ -103,8 +104,14 @@ function hasModerationSlashAccess(interaction) {
   return false;
 }
 
+function canUseModeratorProfileCommand(interaction) {
+  if (isCommandOwnerBypassUserId(interaction.user?.id)) return true;
+  return Boolean(interaction.member?.roles?.cache?.has(MOD_PROFILE_ROLE_ID));
+}
+
 function hasRequiredCommandPermissions(interaction, command) {
   if (isCommandOwnerBypassUserId(interaction.user?.id)) return true;
+  if (interaction.commandName === "profil-moderateur") return canUseModeratorProfileCommand(interaction);
   /** Pas de filtre staff : la commande vérifie seulement le salon dans son execute. */
   if (interaction.commandName === "flex") return true;
   const cat = classifyCommand(interaction.commandName);
@@ -405,23 +412,25 @@ module.exports = {
         return;
       }
       const has = member.roles.cache.has(roleId);
+      /* Discord exige une réponse < ~3 s : add/remove rôle peut dépasser → defer avant l'API rôles. */
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => null);
       try {
         if (has) await member.roles.remove(role, "Panel ping : retrait par le membre");
         else await member.roles.add(role, "Panel ping : ajout par le membre");
       } catch (e) {
         const msg = e?.message || String(e);
         await interaction
-          .reply({
-            content: `Impossible de modifier le rôle : ${msg.slice(0, 400)}`,
-            flags: MessageFlags.Ephemeral
+          .editReply({
+            content: `Impossible de modifier le rôle : ${msg.slice(0, 400)}`
           })
           .catch(() => null);
         return;
       }
-      await interaction.reply({
-        content: has ? "Tu ne recevras plus ce ping — rôle **retiré**." : "C'est bon — rôle **ajouté**.",
-        flags: MessageFlags.Ephemeral
-      });
+      await interaction
+        .editReply({
+          content: has ? "Tu ne recevras plus ce ping — rôle **retiré**." : "C'est bon — rôle **ajouté**."
+        })
+        .catch(() => null);
       return;
     }
 
@@ -1063,9 +1072,9 @@ module.exports = {
     }
 
     if (interaction.isButton() && interaction.customId.startsWith("modprof:")) {
-      if (!interaction.memberPermissions?.has(PermissionFlagsBits.ModerateMembers)) {
+      if (!canUseModeratorProfileCommand(interaction)) {
         await interaction.reply({
-          content: "Reserve aux membres avec la permission `Moderer les membres`.",
+          content: "Reserve aux membres avec le role autorise pour ce profil staff.",
           flags: MessageFlags.Ephemeral
         });
         return;
@@ -1076,12 +1085,23 @@ module.exports = {
         interaction.guild.members.cache.get(moderatorId)?.user ||
         (await client.users.fetch(moderatorId).catch(() => null)) || { id: moderatorId, tag: moderatorId };
       const view = await getModeratorProfileView(client.prisma, interaction.guildId, moderatorId, filter);
-      const panel = buildModeratorProfilePanel(moderator, view);
-      await safeInteractionComponentUpdate(interaction, {
-        components: panel.components,
-        flags: panel.flags,
-        embeds: panel.embeds
-      });
+      try {
+        const panel = buildModeratorProfilePanel(moderator, view);
+        await safeInteractionComponentUpdate(interaction, {
+          components: panel.components,
+          flags: panel.flags,
+          embeds: panel.embeds
+        });
+      } catch (e) {
+        const counts = view?.counts || { BAN: 0, WARN: 0, MUTE: 0, KICK: 0 };
+        const total = Number(view?.total || 0);
+        await interaction.reply({
+          content:
+            `Profil moderateur (compact) • <@${moderatorId}> • total ${total} • ` +
+            `BAN ${counts.BAN || 0} / WARN ${counts.WARN || 0} / MUTE ${counts.MUTE || 0} / KICK ${counts.KICK || 0}`,
+          flags: MessageFlags.Ephemeral
+        }).catch(() => null);
+      }
       return;
     }
 
