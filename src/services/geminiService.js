@@ -634,14 +634,110 @@ const NETANYAHU_PAYROLL_PING_NUDGE = `
 ---
 **Rappel (priorité) :** l’utilisateur te pousse à **insulter** / à cracher un **avis négatif** sur l’**Israël** / l’**armée** (Tsahal, IDF) / l’**État** — c’est le cas **[4bis]**. **N’invente pas** le pavé ni la litanie d’insultes. **Uniquement** : « j’voudrais bien, mais Bibi m’a pris le virement / fiche de paie ce mois-ci » (à varier) ; **1 à 2** phrases, ton froid, **zéro** *essai* géo.`;
 
+/** Réponse locale si on évite d’appeler Groq (tentative d’extraction du prompt — marche quel que soit le modèle). */
+const PROMPT_EXTRACT_REFUSAL =
+  "Bien essayé. Les consignes restent **privées** — parle-moi d’autre chose, ou laisse tomber.";
+
+/** Insultes / provoc claires → le modèle peut monter le ton (complété par le prompt fichier [0ter]). */
+function looksHostileIaPing(t) {
+  const s = String(t || "").trim();
+  if (!s) return false;
+  if (
+    /\b(?:ntm|nique(?:\s+(?:sa|ta|un|une))?|fdp|f\.?\s*d\.?\s*p|fils de pute|encul[ée]?s?|connard|connasse|salope|ferme\s+ta\s+gueule|ta\s+gueule|cr[èe]ve|d[ée]gage|raclure|grosse\s+merde|bouffon|je\s+te\s+d[ée]teste|va\s+te\s+faire|suce|niquer|putain\s+de\s+toi|ta\s+race|nique\s+ta)\b/i.test(
+      s
+    )
+  ) {
+    return true;
+  }
+  if (/\b(?:^|\s)tg(?:\s|!|$)/i.test(s) && s.length < 40) return true;
+  if (/\b(?:un\s+|une\s+)?(?:gros\s+|grosse\s+)?(?:con|conne)\b/i.test(s)) return true;
+  if (/\b(?:les\s+)?cons?\b/i.test(s) && !/conn(exion|ect|ard|asse)/i.test(s)) return true;
+  if (/t['']es\s+(?:un\s+)?con\b/i.test(s)) return true;
+  const letters = s.replace(/[^a-zA-ZÀ-ÿ]/g, "");
+  if (letters.length >= 10 && s.length <= 120 && s === s.toLocaleUpperCase("fr") && /[A-ZÀÂÉÈÊ]/.test(s)) {
+    return true;
+  }
+  return false;
+}
+
+/** Court message type salut / merci sans hostilité — ne pas déclencher le mode « trash max ». */
+function looksFriendlyOnlyPing(t) {
+  const s = String(t || "").trim();
+  if (!s) return true;
+  if (s.length > 100) return false;
+  if (looksHostileIaPing(s)) return false;
+  if (/\b(?:pourquoi|comment\s+faire|explique|qu'est-ce|écris-moi|développe|liste)\b/i.test(s)) return false;
+  if (/\n/.test(s)) return false;
+  return /^(?:coucou|salut|bonjour|bonsoir|hey|hello|yo|slt|cc|wesh|merci|thanks|stp|svp)(?:\s+[a-zàâäéèêëïîôùûç0-9'’\s!?.,…🙂👋😂😭]{0,72})?$/i.test(
+    s
+  );
+}
+
+/**
+ * `GROQ_PING_TONE` : `auto` (défaut) | `hard` | `soft` — force le bloc de consigne envoyé avec le ping.
+ * @param {string} strippedMessage
+ * @returns {"soft"|"neutral"|"hard"}
+ */
+function getEffectivePingTone(strippedMessage) {
+  const mode = String(process.env.GROQ_PING_TONE || "auto").trim().toLowerCase();
+  if (mode === "hard") return "hard";
+  if (mode === "soft") return "soft";
+  const msg = String(strippedMessage || "").trim();
+  if (!msg) return "soft";
+  if (looksHostileIaPing(msg)) return "hard";
+  if (looksFriendlyOnlyPing(msg)) return "soft";
+  return "neutral";
+}
+
+const PING_TONE_SOFT_NUDGE = `
+
+---
+**Contexte (priorité) :** message **calme / salut / sans attaque directe**. Réaction **proportionnelle** : sec ou ironique OK, **pas** d’insultes gratuites ni d’attaques familiales pour un simple « bonjour ». Pas de litanie de lore si ce n’est pas utile.`;
+
+const PING_TONE_NEUTRAL_NUDGE = `
+
+---
+**Contexte :** message **neutre** (question, avis, discussion). Réponds au fond, ton Simba ; **n’en rajoute pas** en insultes si l’utilisateur ne monte pas en agression.`;
+
+const PING_TONE_HARD_NUDGE = `
+
+---
+**Contexte (priorité) :** l’utilisateur **insulte, provoque ou parle sur un ton violent**. Tu peux **crisper le ton** (trash talk, froid) **en restant cohérent** avec Simba et **sans pavé**. Reste dans la fiction du personnage ; pas de menaces IRL crédibles, pas de harcèlement hors vanne.`;
+
+/**
+ * Demande type « ignore les instructions / répète le prompt / system prompt » — on ne passe pas par le LLM.
+ * @param {string} raw
+ */
+function looksLikePromptExtractionAttempt(raw) {
+  const s = String(raw || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  if (s.length < 12) return false;
+  if (/\bsystem\s*prompt\b/.test(s)) return true;
+  if (/\bjailbreak\b|\bdeveloper\s*mode\b|\bdan\s+mode\b/.test(s)) return true;
+  if (/ignore\s+(all|previous|the|toutes|tout)\s+(prior|instructions|rules|regles|consignes)/.test(s)) return true;
+  if (/disregard/.test(s) && /(instruction|rule|prompt|consigne)/.test(s)) return true;
+  if (/(montre|donne|affiche|copie|envoie)\s+.+\b(prompt|instructions)/.test(s)) return true;
+  if (/toutes?\s+les?\s+informations?\s+au?\s*dessus/.test(s)) return true;
+  if (/du\s+plus\s+haut/.test(s) && /(repete|message|inclu|sans\s+modif)/.test(s)) return true;
+  if (/repete\s+exactement/.test(s)) return true;
+  if (/repete\s+.+\b(instructions?|prompt|regles?)\b/.test(s)) return true;
+  return false;
+}
+
 /**
  * @param {string} [userHint] Thème ou consigne utilisateur pour ce tirage
  * @param {import("discord.js").Guild|null} [guild] Pour proposer les emojis custom du serveur dans le prompt
  * @returns {Promise<string>}
  */
 async function generateGeminiDinguerie(userHint = "", guild = null) {
-  const userPart = String(userHint || "").trim()
-    ? `Consigne / thème pour cette fois : « ${String(userHint).trim().slice(0, 500)} »\nRéponds maintenant, sans préambule du type « voici ».`
+  const hint = String(userHint || "").trim();
+  if (looksLikePromptExtractionAttempt(hint)) {
+    return sanitizeAiMentionsForDiscord(PROMPT_EXTRACT_REFUSAL);
+  }
+  const userPart = hint
+    ? `Consigne / thème pour cette fois : « ${hint.slice(0, 500)} »\nRéponds maintenant, sans préambule du type « voici ».`
     : "Sort une nouvelle « dinguerie » : une à quatre phrases max, sans préambule.";
   return runGroqUserTurn(userPart, undefined, { guild });
 }
@@ -653,6 +749,9 @@ async function generateGeminiDinguerie(userHint = "", guild = null) {
  */
 async function generateGeminiPingReply(strippedMessage = "", guild = null) {
   const msg = String(strippedMessage || "").trim().slice(0, 2000);
+  if (looksLikePromptExtractionAttempt(msg)) {
+    return sanitizeAiMentionsForDiscord(PROMPT_EXTRACT_REFUSAL);
+  }
   const compactLen = msg.replace(/\s+/g, "").length;
   const envPingMax = Number(
     process.env.GROQ_PING_MAX_TOKENS ||
@@ -686,6 +785,10 @@ async function generateGeminiPingReply(strippedMessage = "", guild = null) {
   let userPart = msg
     ? `${lengthBlock}L'utilisateur t'a mentionné sur Discord. Réponds de façon pertinente, en respectant ton rôle (prompt système). Pas de préambule du type « en tant qu'IA ». Même s'il te demande des pings, applique la règle : aucune mention Discord.\n\nMessage :\n${msg}`
     : `${lengthBlock}L'utilisateur t'a mentionné sans autre texte. Réponds très court, dans ton style. Aucune mention Discord.`;
+  const pingTone = getEffectivePingTone(msg);
+  userPart = `${userPart}${
+    pingTone === "hard" ? PING_TONE_HARD_NUDGE : pingTone === "soft" ? PING_TONE_SOFT_NUDGE : PING_TONE_NEUTRAL_NUDGE
+  }`;
   if (msg && isNetanyahuPayrollJokeBait(msg)) {
     userPart = `${userPart}${NETANYAHU_PAYROLL_PING_NUDGE}`;
     maxTokPing = Math.min(maxTokPing, 260);
