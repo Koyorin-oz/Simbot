@@ -110,7 +110,7 @@ module.exports = {
               const stripped = stripBotMentions(message.content, botId);
               await message.channel.sendTyping().catch(() => null);
               try {
-                const out = await generateGeminiPingReply(stripped, message.guild);
+                const out = await generateGeminiPingReply(stripped, message.guild, client.prisma);
                 if (!noCd) setGeminiCooldown(client, message.guild.id, message.author.id);
                 replied = true;
                 await message

@@ -209,5 +209,8 @@ model BotRuntimeSettings {
   embedThumbnailUrl    String @default("")
   embedColor           Int    @default(5793266)
 
+  /** Ton des réponses ping IA : auto | hard | soft — réglable via /ia-mode */
+  iaPingTone String @default("auto")
+
   updatedAt DateTime @updatedAt
 }

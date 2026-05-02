@@ -26,6 +26,7 @@ const ADMIN_COMMANDS = new Set([
   "resume-economie",
   "pause-ia",
   "ia-prompt",
+  "ia-mode",
   "dinguerie",
   "verification",
   "verification-telephone",

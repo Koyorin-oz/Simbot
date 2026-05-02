@@ -674,14 +674,32 @@ function looksFriendlyOnlyPing(t) {
 }
 
 /**
- * `GROQ_PING_TONE` : `auto` (défaut) | `hard` | `soft` — force le bloc de consigne envoyé avec le ping.
+ * Ton ping IA : base de données (`/ia-mode`) puis `GROQ_PING_TONE` si mode **auto**, puis classification.
  * @param {string} strippedMessage
- * @returns {"soft"|"neutral"|"hard"}
+ * @param {import("@prisma/client").PrismaClient | null | undefined} prisma
+ * @returns {Promise<"soft"|"neutral"|"hard">}
  */
-function getEffectivePingTone(strippedMessage) {
-  const mode = String(process.env.GROQ_PING_TONE || "auto").trim().toLowerCase();
-  if (mode === "hard") return "hard";
-  if (mode === "soft") return "soft";
+async function getEffectivePingTone(strippedMessage, prisma) {
+  let stored = "auto";
+  if (prisma) {
+    try {
+      const row = await prisma.botRuntimeSettings.findUnique({
+        where: { id: 1 },
+        select: { iaPingTone: true }
+      });
+      const t = String(row?.iaPingTone || "auto").trim().toLowerCase();
+      if (t === "hard" || t === "soft" || t === "auto") stored = t;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (stored === "hard") return "hard";
+  if (stored === "soft") return "soft";
+
+  const envMode = String(process.env.GROQ_PING_TONE || "").trim().toLowerCase();
+  if (envMode === "hard") return "hard";
+  if (envMode === "soft") return "soft";
+
   const msg = String(strippedMessage || "").trim();
   if (!msg) return "soft";
   if (looksHostileIaPing(msg)) return "hard";
@@ -746,8 +764,9 @@ async function generateGeminiDinguerie(userHint = "", guild = null) {
  * Réponse à un ping avec message utilisateur (jusqu’à ~2000 car. du message nettoyé).
  * @param {string} strippedMessage Texte sans mention du bot (peut être vide)
  * @param {import("discord.js").Guild|null} [guild]
+ * @param {import("@prisma/client").PrismaClient | null} [prisma] Pour le ton (/ia-mode)
  */
-async function generateGeminiPingReply(strippedMessage = "", guild = null) {
+async function generateGeminiPingReply(strippedMessage = "", guild = null, prisma = null) {
   const msg = String(strippedMessage || "").trim().slice(0, 2000);
   if (looksLikePromptExtractionAttempt(msg)) {
     return sanitizeAiMentionsForDiscord(PROMPT_EXTRACT_REFUSAL);
@@ -785,7 +804,7 @@ async function generateGeminiPingReply(strippedMessage = "", guild = null) {
   let userPart = msg
     ? `${lengthBlock}L'utilisateur t'a mentionné sur Discord. Réponds de façon pertinente, en respectant ton rôle (prompt système). Pas de préambule du type « en tant qu'IA ». Même s'il te demande des pings, applique la règle : aucune mention Discord.\n\nMessage :\n${msg}`
     : `${lengthBlock}L'utilisateur t'a mentionné sans autre texte. Réponds très court, dans ton style. Aucune mention Discord.`;
-  const pingTone = getEffectivePingTone(msg);
+  const pingTone = await getEffectivePingTone(msg, prisma);
   userPart = `${userPart}${
     pingTone === "hard" ? PING_TONE_HARD_NUDGE : pingTone === "soft" ? PING_TONE_SOFT_NUDGE : PING_TONE_NEUTRAL_NUDGE
   }`;

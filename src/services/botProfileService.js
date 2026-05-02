@@ -156,7 +156,8 @@ async function resetBotRuntimeSection(prisma, section) {
         embedFooterIconUrl: "",
         embedImageUrl: "",
         embedThumbnailUrl: "",
-        embedColor: 5793266
+        embedColor: 5793266,
+        iaPingTone: "auto"
       }
     });
     return;
