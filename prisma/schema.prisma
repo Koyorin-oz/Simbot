@@ -189,3 +189,25 @@ model YouTubeNotifiedVideo {
   @@unique([sourceKey, videoId])
   @@index([sourceKey, createdAt])
 }
+
+/** Une seule ligne (id=1) : presence du bot + modele d’embed pour apercu (pas le statut Discord utilisateur). */
+model BotRuntimeSettings {
+  id Int @id @default(1)
+
+  presenceActivityType String @default("WATCHING")
+  presenceActivityName String @default("SimBot")
+  presenceStatus       String @default("online")
+  presenceStreamUrl    String @default("")
+
+  embedTitle           String @default("")
+  embedDescription     String @default("")
+  embedAuthorName      String @default("")
+  embedAuthorIconUrl   String @default("")
+  embedFooterText      String @default("")
+  embedFooterIconUrl   String @default("")
+  embedImageUrl        String @default("")
+  embedThumbnailUrl    String @default("")
+  embedColor           Int    @default(5793266)
+
+  updatedAt DateTime @updatedAt
+}
