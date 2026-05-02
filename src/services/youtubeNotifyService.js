@@ -31,14 +31,58 @@ function youtubeRssHeaders() {
   };
 }
 
+/** Un seul hôte fiable : `youtube.com` sans `www` renvoie souvent 404 côté CDN / hébergeur. */
 const RSS_URL_BUILDERS = [
   (channelId) =>
-    `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`,
-  (channelId) => `https://youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`
+    `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`
 ];
 
 /** @type {Map<string, { lastLog: number; suppressed: number }>} */
 const rssErrorThrottle = new Map();
+/** @type {Map<string, Map<string, number>>} sourceKey -> (videoId -> timestamp) */
+const recentlyNotifiedBySource = new Map();
+
+const RECENT_NOTIFY_TTL_MS = 48 * 60 * 60 * 1000;
+
+function pruneRecentNotified(sourceKey) {
+  const byVideo = recentlyNotifiedBySource.get(sourceKey);
+  if (!byVideo) return;
+  const now = Date.now();
+  for (const [videoId, ts] of byVideo) {
+    if (now - ts > RECENT_NOTIFY_TTL_MS) byVideo.delete(videoId);
+  }
+  if (!byVideo.size) recentlyNotifiedBySource.delete(sourceKey);
+}
+
+function markRecentNotified(sourceKey, videoId) {
+  pruneRecentNotified(sourceKey);
+  let byVideo = recentlyNotifiedBySource.get(sourceKey);
+  if (!byVideo) {
+    byVideo = new Map();
+    recentlyNotifiedBySource.set(sourceKey, byVideo);
+  }
+  byVideo.set(videoId, Date.now());
+}
+
+function wasRecentlyNotified(sourceKey, videoId) {
+  pruneRecentNotified(sourceKey);
+  const byVideo = recentlyNotifiedBySource.get(sourceKey);
+  if (!byVideo) return false;
+  return byVideo.has(videoId);
+}
+
+const NOTIFY_DB_KEEP_ROWS = 500;
+
+async function pruneNotifiedVideos(prisma, sourceKey) {
+  const extras = await prisma.youTubeNotifiedVideo.findMany({
+    where: { sourceKey },
+    orderBy: { createdAt: "desc" },
+    skip: NOTIFY_DB_KEEP_ROWS,
+    select: { id: true }
+  });
+  if (!extras.length) return;
+  await prisma.youTubeNotifiedVideo.deleteMany({ where: { id: { in: extras.map((r) => r.id) } } });
+}
 
 function rssErrorLogIntervalMs() {
   return Math.max(5, Number(config.youtubeNotify?.rssErrorLogMinutes) || 30) * 60 * 1000;
@@ -397,6 +441,19 @@ async function pollOneSource(client, prisma, channel, source) {
 
   for (const e of toPost) {
     if (isFrozen()) break;
+    const alreadyDb = await prisma.youTubeNotifiedVideo
+      .findUnique({
+        where: { sourceKey_videoId: { sourceKey, videoId: e.id } }
+      })
+      .catch(() => null);
+    if (alreadyDb) {
+      console.log(`[YOUTUBE_NOTIFY] Skip deja notifie (DB) ${displayName} [video ${e.id}]`);
+      continue;
+    }
+    if (wasRecentlyNotified(sourceKey, e.id)) {
+      console.log(`[YOUTUBE_NOTIFY] Skip doublon recent ${displayName} [video ${e.id}]`);
+      continue;
+    }
     if (e.publishedAt && now - e.publishedAt.getTime() > maxAgeMs) {
       console.log(
         `[YOUTUBE_NOTIFY] Skip notif (publie il y a ${Math.round((now - e.publishedAt.getTime()) / 3600000)}h, max ${Math.round(maxAgeMs / 3600000)}h) ${displayName} ${e.id}`
@@ -408,21 +465,35 @@ async function pollOneSource(client, prisma, channel, source) {
         pingRoleId ? `role <@&${pingRoleId}>` : "@everyone"
       } [video ${e.id}]`
     );
-    await sendYoutubeNotification(channel, displayName, e.id, e.title, {
-      handle,
-      pingRoleId
-    }).catch((err) => {
+    try {
+      await sendYoutubeNotification(channel, displayName, e.id, e.title, {
+        handle,
+        pingRoleId
+      });
+      markRecentNotified(sourceKey, e.id);
+      try {
+        await prisma.youTubeNotifiedVideo.create({ data: { sourceKey, videoId: e.id } });
+      } catch (dbErr) {
+        if (dbErr?.code !== "P2002") {
+          console.error(`[YOUTUBE_NOTIFY] DB dedup:`, dbErr?.message || dbErr);
+        }
+      }
+    } catch (err) {
       console.error(`[YOUTUBE_NOTIFY] Envoi echoue (${displayName} ${e.id}):`, err?.message || err);
-    });
+    }
   }
 
   await prisma.youTubeNotifyState.update({
     where: { sourceKey },
     data: { lastVideoId: newestId }
   });
+  await pruneNotifiedVideos(prisma, sourceKey).catch(() => null);
 }
 
 async function runYoutubeNotifyPoll(client) {
+  if (client.youtubeNotifyPollRunning) return;
+  client.youtubeNotifyPollRunning = true;
+  try {
   const yn = config.youtubeNotify;
   if (!yn?.enabled) return;
 
@@ -464,6 +535,9 @@ async function runYoutubeNotifyPoll(client) {
     await pollOneSource(client, client.prisma, channel, src).catch((err) => {
       console.error(`[YOUTUBE_NOTIFY] Poll ${src.displayName} (interne):`, err?.message || err);
     });
+  }
+  } finally {
+    client.youtubeNotifyPollRunning = false;
   }
 }
 

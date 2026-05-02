@@ -178,3 +178,14 @@ model YouTubeNotifyState {
   lastVideoId String?
   updatedAt   DateTime @updatedAt
 }
+
+/** Videos deja notifiees (anti-doublon persistant si RSS instable / restart bot). */
+model YouTubeNotifiedVideo {
+  id        Int      @id @default(autoincrement())
+  sourceKey String
+  videoId   String
+  createdAt DateTime @default(now())
+
+  @@unique([sourceKey, videoId])
+  @@index([sourceKey, createdAt])
+}
