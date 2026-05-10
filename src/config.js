@@ -78,6 +78,23 @@ module.exports = {
       scarSpPerTick: 48,
       /** SP retires par tick (Cardinal). */
       cardinalSpPerTick: 72
+    },
+    /**
+     * Bonus SC / SP / LP pour l’activité (messages + vocal) si le membre booste le serveur.
+     * Valeurs en % (pas des multiplicateurs ×1.15). Désactiver : SERVER_BOOST_REWARD_ENABLED=false
+     */
+    serverBoostReward: {
+      enabled: String(process.env.SERVER_BOOST_REWARD_ENABLED || "true").toLowerCase() !== "false",
+      /** 1 contribution Nitro au serveur */
+      pctOneBoost: Math.min(
+        5,
+        Math.max(0, Number(process.env.SERVER_BOOST_PCT_ONE) || 1.15)
+      ),
+      /** 2 contributions ou plus */
+      pctTwoPlusBoosts: Math.min(
+        5,
+        Math.max(0, Number(process.env.SERVER_BOOST_PCT_TWO_PLUS) || 1.2)
+      )
     }
   },
   rewards: {
@@ -399,6 +416,24 @@ module.exports = {
         channelId: "UCzYVs0LTrd6265AIkl-vZlA",
         /** Vide -> @everyone conserve. */
         pingRoleId: String(process.env.YOUTUBE_NOTIFY_CARMINEOFF_ROLE_ID || "").trim()
+      }
+    ]
+  },
+
+  /**
+   * Notifications TikTok LIVE : meme style que YouTube (texte + embed + bouton),
+   * mais ping @here pour eviter @everyone.
+   * Desactiver : TIKTOK_NOTIFY_ENABLED=false
+   */
+  tiktokNotify: {
+    enabled: String(process.env.TIKTOK_NOTIFY_ENABLED || "true").toLowerCase() !== "false",
+    guildId: String(process.env.TIKTOK_NOTIFY_GUILD_ID || MAIN_GUILD_ID).trim(),
+    channelId: String(process.env.TIKTOK_NOTIFY_CHANNEL_ID || "769479020575981608").trim(),
+    pollIntervalMinutes: Math.max(1, Number(process.env.TIKTOK_NOTIFY_POLL_MINUTES) || 2),
+    sources: [
+      {
+        username: "carmine.off",
+        displayName: "Carmine"
       }
     ]
   }

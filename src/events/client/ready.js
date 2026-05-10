@@ -11,6 +11,7 @@ const { ensureInventoryTables } = require("../../services/inventoryService");
 const { isEconomyPaused } = require("../../services/economyRuntimeService");
 const { startJokeScheduler } = require("../../services/jokeScheduleService");
 const { startYoutubeNotifyPoller } = require("../../services/youtubeNotifyService");
+const { startTiktokNotifyPoller } = require("../../services/tiktokNotifyService");
 const { startTempBanScheduler } = require("../../services/tempBanScheduler");
 const { applyBotPresence } = require("../../services/botProfileService");
 
@@ -37,7 +38,13 @@ function startVoiceGainTicker(client) {
           // Micro coupe (self ou server) OU casque coupe -> pas de gain.
           if (member.voice?.selfMute || member.voice?.serverMute || member.voice?.deaf) continue;
           // eslint-disable-next-line no-await-in-loop
-          const updated = await addActivityGain(client.prisma, guild.id, memberId, config.economy.voiceGain);
+          const updated = await addActivityGain(
+            client.prisma,
+            guild.id,
+            memberId,
+            config.economy.voiceGain,
+            member
+          );
           // eslint-disable-next-line no-await-in-loop
           const syncStatus = await syncRankRoleForMember(client, member, updated.simbaPoints);
           // eslint-disable-next-line no-await-in-loop
@@ -120,6 +127,7 @@ module.exports = {
     }
     startJokeScheduler(client);
     startYoutubeNotifyPoller(client);
+    startTiktokNotifyPoller(client);
     startTempBanScheduler(client);
   },
   startVoiceGainTicker,

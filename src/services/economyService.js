@@ -31,6 +31,20 @@ function resolveBoosts(user) {
   return { coffee, lpSpPermanent, scPermanent };
 }
 
+/**
+ * Bonus % (activité) selon les boosts Nitro que le membre attribue à CE serveur.
+ * @param {import("discord.js").GuildMember | null | undefined} guildMember
+ */
+function getServerBoostRewardPct(guildMember) {
+  const r = config.economy.serverBoostReward;
+  if (!r?.enabled) return 0;
+  if (!guildMember || guildMember.user?.bot) return 0;
+  const n = Number(guildMember.premiumSubscriptionCount);
+  if (!Number.isFinite(n) || n < 1) return 0;
+  if (n >= 2) return r.pctTwoPlusBoosts;
+  return r.pctOneBoost;
+}
+
 async function ensureUser(prisma, guildId, userId) {
   try {
     return await prisma.user.upsert({
@@ -52,11 +66,16 @@ async function ensureUser(prisma, guildId, userId) {
   }
 }
 
-async function addActivityGain(prisma, guildId, userId, baseGain) {
+/**
+ * @param {import("discord.js").GuildMember | null | undefined} [guildMember]
+ *   Si fourni : bonus Nitro boost serveur sur SC / SP / LP (messages + vocal).
+ */
+async function addActivityGain(prisma, guildId, userId, baseGain, guildMember) {
   const user = await ensureUser(prisma, guildId, userId);
   const boosts = resolveBoosts(user);
-  const scBoostPct = boosts.coffee + boosts.scPermanent;
-  const spLpBoostPct = boosts.coffee + boosts.lpSpPermanent;
+  const serverBoostPct = getServerBoostRewardPct(guildMember);
+  const scBoostPct = boosts.coffee + boosts.scPermanent + serverBoostPct;
+  const spLpBoostPct = boosts.coffee + boosts.lpSpPermanent + serverBoostPct;
   const scGain = Math.floor(baseGain.sc * (1 + scBoostPct / 100));
   const spGain = Math.floor(baseGain.sp * (1 + spLpBoostPct / 100));
   const lpGain = Math.floor(baseGain.lp * (1 + spLpBoostPct / 100));
@@ -140,6 +159,7 @@ module.exports = {
   ensureUser,
   addActivityGain,
   getRandomMessageGain,
+  getServerBoostRewardPct,
   randomBetween,
   sanitizeEconomyIntRanges
 };

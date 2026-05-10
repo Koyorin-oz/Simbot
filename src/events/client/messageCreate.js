@@ -362,7 +362,16 @@ module.exports = {
     client.cooldowns.set(key, now);
 
     try {
-      const updated = await addActivityGain(client.prisma, message.guild.id, message.author.id, getRandomMessageGain());
+      const guildMember =
+        message.member ||
+        (await message.guild.members.fetch({ user: message.author.id }).catch(() => null));
+      const updated = await addActivityGain(
+        client.prisma,
+        message.guild.id,
+        message.author.id,
+        getRandomMessageGain(),
+        guildMember
+      );
       const syncStatus = await syncRankRoleForMember(client, message.member, updated.simbaPoints);
       await syncLevel3RoleForMember(message.member, updated.level).catch(() => null);
       await maybeAnnounceEconomyMilestones(
