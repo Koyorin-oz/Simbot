@@ -8,10 +8,14 @@ const {
 } = require("../../services/welcomeService");
 const { updateMemberCounterChannel } = require("../../services/memberCounterService");
 const { isFrozen } = require("../../services/simbotRuntimeService");
+const { syncBoosterRole } = require("../../services/serverBoosterRoleService");
 
 module.exports = {
   name: "guildMemberAdd",
   async execute(client, member) {
+    if (!member.user.bot) {
+      await syncBoosterRole(member).catch(() => null);
+    }
     if (isFrozen()) return;
     await updateMemberCounterChannel(member.guild).catch(() => null);
     if (member.user.bot) return;

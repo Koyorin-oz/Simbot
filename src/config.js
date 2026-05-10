@@ -97,6 +97,17 @@ module.exports = {
       )
     }
   },
+
+  /**
+   * Rôle personnalisé synchronisé avec le boost Nitro sur le serveur (ajout / retrait auto).
+   * Désactiver : SERVER_BOOSTER_ROLE_SYNC_ENABLED=false
+   */
+  serverBoosterRoleSync: {
+    enabled: String(process.env.SERVER_BOOSTER_ROLE_SYNC_ENABLED || "true").toLowerCase() !== "false",
+    guildId: String(process.env.SERVER_BOOSTER_ROLE_GUILD_ID || MAIN_GUILD_ID).trim(),
+    roleId: String(process.env.SERVER_BOOSTER_ROLE_ID || "737383971427450940").trim()
+  },
+
   rewards: {
     dailyOptions: [2000, 5000, 7000, 10000],
     weekly: 25000,

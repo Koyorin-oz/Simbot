@@ -2,11 +2,13 @@ const { sendModLog, baseEmbed } = require("../../services/modLogService");
 const { recordNativeMuteFromAudit } = require("../../services/moderatorProfileService");
 const config = require("../../config");
 const { stripWelcomeUnverifiedRoles } = require("../../services/welcomeVerifyService");
+const { maybeSyncBoosterRoleAfterUpdate } = require("../../services/serverBoosterRoleService");
 
 module.exports = {
   name: "guildMemberUpdate",
   async execute(client, oldMember, newMember) {
     await recordNativeMuteFromAudit(client, oldMember, newMember).catch(() => null);
+    await maybeSyncBoosterRoleAfterUpdate(oldMember, newMember).catch(() => null);
 
     const guild = newMember.guild;
     const added = newMember.roles.cache.filter((r) => !oldMember.roles.cache.has(r.id));
