@@ -13,7 +13,7 @@ const { startJokeScheduler } = require("../../services/jokeScheduleService");
 const { startYoutubeNotifyPoller } = require("../../services/youtubeNotifyService");
 const { startTiktokNotifyPoller } = require("../../services/tiktokNotifyService");
 const { startTempBanScheduler } = require("../../services/tempBanScheduler");
-const { applyBotPresence } = require("../../services/botProfileService");
+const { applyBotPresence, applyBotAvatar } = require("../../services/botProfileService");
 
 function startVoiceGainTicker(client) {
   stopVoiceGainTicker(client);
@@ -103,6 +103,9 @@ module.exports = {
     console.log(`[READY] Connecte en tant que ${client.user.tag}`);
     await applyBotPresence(client).catch((e) =>
       console.warn("[READY] Presence bot (bot-apparence):", e?.message || e)
+    );
+    await applyBotAvatar(client).catch((e) =>
+      console.warn("[READY] Avatar bot (bot-apparence):", e?.message || e)
     );
     console.log(
       `[READY] Instance PID=${process.pid} — si l'IA répond en double : un seul processus doit utiliser ce token (arrêter npm local si Pebble tourne).`

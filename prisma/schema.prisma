@@ -198,6 +198,8 @@ model BotRuntimeSettings {
   presenceActivityName String @default("SimBot")
   presenceStatus       String @default("online")
   presenceStreamUrl    String @default("")
+  /** URL image pour la photo de profil du bot (reappliquee au demarrage). Vide = ne pas changer. */
+  botAvatarUrl         String @default("")
 
   embedTitle           String @default("")
   embedDescription     String @default("")

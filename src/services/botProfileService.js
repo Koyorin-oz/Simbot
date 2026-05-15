@@ -7,6 +7,7 @@ const DEFAULT_SETTINGS = {
   presenceActivityName: "SimBot",
   presenceStatus: "online",
   presenceStreamUrl: "",
+  botAvatarUrl: "",
   embedTitle: "",
   embedDescription: "",
   embedAuthorName: "",
@@ -82,6 +83,53 @@ async function applyBotPresence(client) {
   });
 }
 
+function isHttpImageUrl(url) {
+  const u = String(url || "").trim();
+  if (!/^https?:\/\//i.test(u)) return false;
+  return /\.(png|jpe?g|gif|webp)(\?|$)/i.test(u) || /cdn\.discordapp\.com|media\.discordapp\.net/i.test(u);
+}
+
+/**
+ * Telecharge une image (URL publique ou piece jointe Discord).
+ * @param {string} url
+ */
+async function fetchImageBuffer(url) {
+  const res = await fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; SimBot/1.0)" }
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const ct = String(res.headers.get("content-type") || "");
+  if (ct && !ct.startsWith("image/")) {
+    throw new Error("La reponse n'est pas une image.");
+  }
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length < 128) throw new Error("Image trop petite ou invalide.");
+  if (buf.length > 8 * 1024 * 1024) throw new Error("Image trop lourde (max ~8 Mo).");
+  return buf;
+}
+
+/**
+ * Applique la photo de profil du bot depuis `botAvatarUrl` (DB).
+ * @param {import("discord.js").Client} client
+ * @param {{ remove?: boolean }} [opts] remove=true -> avatar Discord par defaut
+ */
+async function applyBotAvatar(client, opts = {}) {
+  if (!client?.user) return;
+  const s = await getBotRuntimeSettings(client.prisma);
+  if (!s) return;
+
+  if (opts.remove) {
+    await client.user.setAvatar(null);
+    return;
+  }
+
+  const url = String(s.botAvatarUrl || "").trim();
+  if (!url) return;
+
+  const buf = await fetchImageBuffer(url);
+  await client.user.setAvatar(buf);
+}
+
 function parseHexColor(input) {
   if (input === null || input === undefined) return null;
   const s = String(input).trim();
@@ -136,7 +184,7 @@ function buildPreviewEmbed(s) {
 
 /**
  * @param {import("@prisma/client").PrismaClient} prisma
- * @param {"presence"|"embed"|"tout"} section
+ * @param {"presence"|"embed"|"avatar"|"tout"} section
  */
 async function resetBotRuntimeSection(prisma, section) {
   await ensureSettingsRow(prisma);
@@ -148,6 +196,7 @@ async function resetBotRuntimeSection(prisma, section) {
         presenceActivityName: "SimBot",
         presenceStatus: "online",
         presenceStreamUrl: "",
+        botAvatarUrl: "",
         embedTitle: "",
         embedDescription: "",
         embedAuthorName: "",
@@ -171,6 +220,13 @@ async function resetBotRuntimeSection(prisma, section) {
         presenceStatus: "online",
         presenceStreamUrl: ""
       }
+    });
+    return;
+  }
+  if (section === "avatar") {
+    await prisma.botRuntimeSettings.update({
+      where: { id: SETTINGS_ID },
+      data: { botAvatarUrl: "" }
     });
     return;
   }
@@ -198,6 +254,9 @@ module.exports = {
   ensureSettingsRow,
   getBotRuntimeSettings,
   applyBotPresence,
+  applyBotAvatar,
+  fetchImageBuffer,
+  isHttpImageUrl,
   parseHexColor,
   buildPreviewEmbed,
   resolveActivityTypeKey,

@@ -3,6 +3,9 @@ const { deferEphemeral, deferPublic } = require("../../utils/slashDefer");
 const {
   getBotRuntimeSettings,
   applyBotPresence,
+  applyBotAvatar,
+  fetchImageBuffer,
+  isHttpImageUrl,
   parseHexColor,
   buildPreviewEmbed,
   resetBotRuntimeSection
@@ -27,7 +30,7 @@ const STATUS_CHOICES = [
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("bot-apparence")
-    .setDescription("Personnaliser la présence du bot (activité) et un modèle d’embed d’aperçu")
+    .setDescription("Présence, photo de profil et modèle d’embed du bot")
     .setDMPermission(false)
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addSubcommand((sub) =>
@@ -59,6 +62,30 @@ module.exports = {
             .setName("stream_url")
             .setDescription("Obligatoire si type Stream — URL Twitch ou YouTube")
             .setMaxLength(256)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("avatar")
+        .setDescription("Change la photo de profil du bot (image ou URL)")
+        .addAttachmentOption((o) =>
+          o
+            .setName("image")
+            .setDescription("Image (PNG, JPG, GIF, WebP — max ~8 Mo)")
+            .setRequired(false)
+        )
+        .addStringOption((o) =>
+          o
+            .setName("url")
+            .setDescription("URL directe d’une image (si pas de pièce jointe)")
+            .setMaxLength(512)
+            .setRequired(false)
+        )
+        .addBooleanOption((o) =>
+          o
+            .setName("retirer")
+            .setDescription("Remet l’avatar Discord par défaut du bot")
+            .setRequired(false)
         )
     )
     .addSubcommand((sub) =>
@@ -110,9 +137,10 @@ module.exports = {
             .setDescription("Que réinitialiser")
             .setRequired(true)
             .addChoices(
-              { name: "Tout (présence + embed)", value: "tout" },
+              { name: "Tout (présence + embed + avatar)", value: "tout" },
               { name: "Présence uniquement", value: "presence" },
-              { name: "Embed uniquement", value: "embed" }
+              { name: "Embed uniquement", value: "embed" },
+              { name: "Avatar uniquement", value: "avatar" }
             )
         )
     ),
@@ -160,6 +188,83 @@ module.exports = {
       await interaction.editReply({
         content: `Activité mise à jour : **${type}** « ${texte.slice(0, 80)}${texte.length > 80 ? "…" : ""} »`
       });
+      return;
+    }
+
+    if (sub === "avatar") {
+      await deferEphemeral(interaction);
+      const retirer = interaction.options.getBoolean("retirer") === true;
+      if (retirer) {
+        await client.prisma.botRuntimeSettings.update({
+          where: { id: 1 },
+          data: { botAvatarUrl: "" }
+        });
+        try {
+          await applyBotAvatar(client, { remove: true });
+          await interaction.editReply({
+            content: "Photo de profil **retirée** (avatar Discord par défaut). URL enregistrée effacée."
+          });
+        } catch (e) {
+          await interaction.editReply({
+            content: `URL effacée, mais Discord a refusé le retrait : ${e?.message || e}`.slice(0, 2000)
+          });
+        }
+        return;
+      }
+
+      const attachment = interaction.options.getAttachment("image");
+      const urlOpt = interaction.options.getString("url");
+      let imageUrl = "";
+      if (attachment) {
+        const ct = String(attachment.contentType || "");
+        if (ct && !ct.startsWith("image/")) {
+          await interaction.editReply({
+            content: "La pièce jointe doit être une **image** (PNG, JPG, GIF, WebP)."
+          });
+          return;
+        }
+        imageUrl = attachment.url;
+      } else if (urlOpt) {
+        imageUrl = urlOpt.trim();
+        if (!isHttpImageUrl(imageUrl)) {
+          await interaction.editReply({
+            content:
+              "URL invalide. Utilise un lien **https** direct vers une image (`.png`, `.jpg`, `.gif`, `.webp`) ou une URL Discord CDN."
+          });
+          return;
+        }
+      } else {
+        await interaction.editReply({
+          content: "Envoie une **image** en pièce jointe, une **url**, ou coche **retirer**."
+        });
+        return;
+      }
+
+      try {
+        await fetchImageBuffer(imageUrl);
+      } catch (e) {
+        await interaction.editReply({
+          content: `Impossible de lire l’image : ${e?.message || e}`.slice(0, 2000)
+        });
+        return;
+      }
+
+      await client.prisma.botRuntimeSettings.update({
+        where: { id: 1 },
+        data: { botAvatarUrl: imageUrl.slice(0, 512) }
+      });
+
+      try {
+        await applyBotAvatar(client);
+        await interaction.editReply({
+          content:
+            "Photo de profil **mise à jour** et enregistrée (réappliquée au prochain redémarrage du bot)."
+        });
+      } catch (e) {
+        await interaction.editReply({
+          content: `Enregistrée, mais Discord a refusé le changement : ${e?.message || e}`.slice(0, 2000)
+        });
+      }
       return;
     }
 
@@ -240,6 +345,9 @@ module.exports = {
         `- Statut connexion : \`${s.presenceStatus}\``,
         s.presenceStreamUrl ? `- Stream URL : ${s.presenceStreamUrl}` : null,
         "",
+        "**Photo de profil**",
+        `- URL enregistrée : ${s.botAvatarUrl ? s.botAvatarUrl : "— (avatar Discord actuel, non forcé)"}`,
+        "",
         "**IA (ping @bot)**",
         `- Ton : \`${s.iaPingTone || "auto"}\` (commande \`/ia-mode\`)`,
         "",
@@ -256,16 +364,23 @@ module.exports = {
 
     if (sub === "reinitialiser") {
       await deferEphemeral(interaction);
-      const cible = /** @type {"tout"|"presence"|"embed"} */ (interaction.options.getString("cible", true));
+      const cible = /** @type {"tout"|"presence"|"embed"|"avatar"} */ (
+        interaction.options.getString("cible", true)
+      );
       await resetBotRuntimeSection(client.prisma, cible);
       await applyBotPresence(client);
+      if (cible === "tout" || cible === "avatar") {
+        await applyBotAvatar(client, { remove: true }).catch(() => null);
+      }
       await interaction.editReply({
         content:
           cible === "tout"
-            ? "Réglages **présence + embed** remis par défaut. Présence réappliquée."
+            ? "Réglages **présence + embed + avatar** remis par défaut."
             : cible === "presence"
               ? "Présence remise par défaut et réappliquée."
-              : "Modèle embed remis par défaut."
+              : cible === "avatar"
+                ? "Avatar remis par défaut (URL effacée)."
+                : "Modèle embed remis par défaut."
       });
     }
   }
