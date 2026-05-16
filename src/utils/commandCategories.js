@@ -39,7 +39,7 @@ const MODERATION_COMMANDS = new Set([
   "bannir",
   "expulser",
   "mute",
-  "demutre",
+  "demute",
   "fin-silence",
   "debannir",
   "warn",

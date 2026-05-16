@@ -64,7 +64,7 @@ Bot Discord.js v14 : économie SC / SP / LP, rangs, boutique, profil canvas, mod
 | `/warn` | Avertissement + raison. |
 | `/mute` | Silence temporel (durée type `10m`, `1h`). |
 | `/fin-silence` | Lever un timeout/silence. |
-| `/demutre` | Dé-mute vocal (membre). |
+| `/demute` | Retire un timeout (membre). |
 | `/expulser` | Kick. |
 | `/bannir` | Ban. |
 | `/debannir` | Déban par ID utilisateur. |

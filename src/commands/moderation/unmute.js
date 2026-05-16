@@ -5,7 +5,7 @@ const { assertCanSanctionMember } = require("../../utils/staffSanctionHierarchy"
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName("demutre")
+    .setName("demute")
     .setDescription("Retire un timeout")
     .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .addUserOption(o => o.setName("membre").setDescription("Membre cible").setRequired(true)),
