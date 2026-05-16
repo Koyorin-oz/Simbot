@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
-const ms = require("ms");
 const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
+const { parseFrenchDurationMs } = require("../../utils/frenchDurationMs");
 const { buildSanctionEmbed } = require("../../utils/sanctionEmbed");
 const {
   buildPostSanctionDmEmbed,
@@ -17,7 +17,12 @@ module.exports = {
     .setDescription("Mute via timeout natif")
     .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .addUserOption(o => o.setName("membre").setDescription("Membre cible").setRequired(true))
-    .addStringOption(o => o.setName("duree").setDescription("Ex: 10m, 1h").setRequired(true))
+    .addStringOption((o) =>
+      o
+        .setName("duree")
+        .setDescription("Ex: 10m, 1h, 2j, 1sem, 1mois (max 28 j)")
+        .setRequired(true)
+    )
     .addStringOption(o => o.setName("raison").setDescription("Raison").setRequired(false))
     .addBooleanOption(o =>
       o.setName("anonyme").setDescription("Masquer le modérateur dans le MP à la cible").setRequired(false)
@@ -30,7 +35,11 @@ module.exports = {
     const durationRaw = interaction.options.getString("duree", true);
     const reason = interaction.options.getString("raison") || "Aucune raison";
     const anonyme = interaction.options.getBoolean("anonyme") === true;
-    const duration = ms(durationRaw);
+    const parsed = parseFrenchDurationMs(durationRaw, {
+      minMs: 1000,
+      maxMs: MAX_TIMEOUT_MS,
+      examples: "`10m`, `1h`, `2j`, `1sem`, `1mois`"
+    });
     if (!member) return interaction.editReply({ content: "Membre introuvable sur ce serveur." });
     const hierarchyFail = assertCanSanctionMember(
       interaction.member,
@@ -52,8 +61,10 @@ module.exports = {
           "Je ne peux pas appliquer le timeout. Vérifie que j’ai **Modérer les membres** et que mon rôle est **au-dessus** de la cible dans **Paramètres → Rôles**."
       });
     }
-    if (!duration || duration < 1000) return interaction.editReply({ content: "Duree invalide. Exemple: 10m, 1h, 2d." });
-    if (duration > MAX_TIMEOUT_MS) return interaction.editReply({ content: "Duree trop longue (max 28 jours)." });
+    if (!parsed.ok) {
+      return interaction.editReply({ content: parsed.error });
+    }
+    const duration = parsed.ms;
 
     await member.timeout(duration, reason);
     await client.prisma.punishment.create({
