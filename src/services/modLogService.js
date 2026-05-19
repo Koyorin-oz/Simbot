@@ -71,17 +71,19 @@ function isDuplicateDeletionLog(messageId) {
 /** @type {Map<string, { guild: import("discord.js").Guild, items: DeleteQueueItem[], timer: NodeJS.Timeout | null }>} */
 const pendingDeletesByChannel = new Map();
 
+/** @typedef {"mod"|"voice"|"message"} LogChannelType */
+
 /** @returns {Promise<import("discord.js").TextChannel | import("discord.js").NewsChannel | import("discord.js").ThreadChannel | null>} */
-async function resolveModLogChannel(guild) {
-  const id = resolveModLogChannelId(guild?.id);
+async function resolveLogChannel(guild, type = "mod") {
+  const id = resolveLogChannelId(guild?.id, type);
   if (!id || !guild) return null;
   const ch = guild.channels.cache.get(id) || (await guild.channels.fetch(id).catch(() => null));
   if (!ch) {
-    console.warn(`[MODLOG] Canal introuvable: guild=${guild.id} channel=${id}`);
+    console.warn(`[MODLOG] Canal introuvable (${type}): guild=${guild.id} channel=${id}`);
     return null;
   }
   if (!ch.isTextBased?.()) {
-    console.warn(`[MODLOG] Canal non textuel: guild=${guild.id} channel=${id} type=${ch.type}`);
+    console.warn(`[MODLOG] Canal non textuel (${type}): guild=${guild.id} channel=${id} type=${ch.type}`);
     return null;
   }
   const me = guild.members.me;
@@ -92,32 +94,48 @@ async function resolveModLogChannel(guild) {
       perms?.has(PermissionFlagsBits.SendMessages) &&
       perms?.has(PermissionFlagsBits.EmbedLinks);
     if (!canSend) {
-      console.warn(`[MODLOG] Permissions insuffisantes: guild=${guild.id} channel=${id}`);
+      console.warn(`[MODLOG] Permissions insuffisantes (${type}): guild=${guild.id} channel=${id}`);
       return null;
     }
   }
   return ch;
 }
 
-async function sendModLog(guild, embed) {
-  const ch = await resolveModLogChannel(guild);
+/** @deprecated alias */
+async function resolveModLogChannel(guild) {
+  return resolveLogChannel(guild, "mod");
+}
+
+/**
+ * @param {import("discord.js").Guild} guild
+ * @param {import("discord.js").EmbedBuilder} embed
+ * @param {LogChannelType} [type]
+ */
+async function sendServerLog(guild, embed, type = "mod") {
+  const ch = await resolveLogChannel(guild, type);
   if (!ch) return;
   const ok = await ch.send({ embeds: [embed] }).then(() => true).catch((e) => {
-    console.warn(`[MODLOG] Echec envoi: guild=${guild.id} channel=${ch.id} err=${e?.message || e}`);
+    console.warn(
+      `[MODLOG] Echec envoi (${type}): guild=${guild.id} channel=${ch.id} err=${e?.message || e}`
+    );
     return false;
   });
   if (!ok) return;
 }
 
+async function sendModLog(guild, embed) {
+  return sendServerLog(guild, embed, "mod");
+}
+
 /** Envoie plusieurs embeds découpés par paquets de 10 (limite Discord). */
-async function sendModLogEmbeds(guild, embeds) {
+async function sendModLogEmbeds(guild, embeds, type = "mod") {
   if (!embeds?.length) return;
-  const ch = await resolveModLogChannel(guild);
+  const ch = await resolveLogChannel(guild, type);
   if (!ch) return;
   for (let i = 0; i < embeds.length; i += 10) {
     const slice = embeds.slice(i, i + 10);
     const ok = await ch.send({ embeds: slice }).then(() => true).catch((e) => {
-      console.warn(`[MODLOG] Echec envoi multi-embed: guild=${guild.id} err=${e?.message || e}`);
+      console.warn(`[MODLOG] Echec envoi multi-embed (${type}): guild=${guild.id} err=${e?.message || e}`);
       return false;
     });
     if (!ok) return;
@@ -172,24 +190,58 @@ async function logEconomyAdminGive(guild, p) {
   await sendModLog(guild, embed);
 }
 
-function resolveModLogChannelId(guildId) {
-  if (!guildId) return config.modLog?.channelId || "";
-
-  if (guildId === realServerIds?.guildId) {
-    return String(realServerIds?.channels?.modLogChannelId || "").trim() || config.modLog?.channelId || "";
-  }
-
+function readChannelSetupGuild(guildId) {
   try {
     const p = path.join(__dirname, "..", "data", "channelSetup.json");
-    if (fs.existsSync(p)) {
-      const raw = JSON.parse(fs.readFileSync(p, "utf8"));
-      const setupId = String(raw?.[guildId]?.modLogChannelId || "").trim();
-      if (setupId) return setupId;
-    }
+    if (!fs.existsSync(p)) return null;
+    const raw = JSON.parse(fs.readFileSync(p, "utf8"));
+    return raw?.[guildId] || null;
   } catch {
-    // ignore
+    return null;
   }
-  return config.modLog?.channelId || "";
+}
+
+function resolveModLogChannelId(guildId) {
+  return resolveLogChannelId(guildId, "mod");
+}
+
+/**
+ * @param {string} guildId
+ * @param {LogChannelType} type
+ */
+function resolveLogChannelId(guildId, type = "mod") {
+  const fallbackMod = config.modLog?.channelId || "";
+  if (!guildId) {
+    if (type === "voice") return config.modLog?.voiceChannelId || fallbackMod;
+    if (type === "message") return config.modLog?.messageChannelId || fallbackMod;
+    return fallbackMod;
+  }
+
+  const setup = readChannelSetupGuild(guildId);
+  const isProd = guildId === realServerIds?.guildId;
+  const channels = isProd ? realServerIds?.channels || {} : {};
+
+  if (type === "mod") {
+    const fromReal = isProd ? String(channels.modLogChannelId || "").trim() : "";
+    const fromSetup = String(setup?.modLogChannelId || "").trim();
+    return fromSetup || fromReal || fallbackMod;
+  }
+
+  if (type === "voice") {
+    const fromReal = isProd ? String(channels.voiceLogChannelId || "").trim() : "";
+    const fromSetup = String(setup?.voiceLogChannelId || "").trim();
+    const fromEnv = String(config.modLog?.voiceChannelId || "").trim();
+    return fromSetup || fromReal || fromEnv || resolveLogChannelId(guildId, "mod");
+  }
+
+  if (type === "message") {
+    const fromReal = isProd ? String(channels.messageLogChannelId || "").trim() : "";
+    const fromSetup = String(setup?.messageLogChannelId || "").trim();
+    const fromEnv = String(config.modLog?.messageChannelId || "").trim();
+    return fromSetup || fromReal || fromEnv || resolveLogChannelId(guildId, "mod");
+  }
+
+  return resolveLogChannelId(guildId, "mod");
 }
 
 function baseEmbed(title, color = 0x2b2d31) {
@@ -297,7 +349,7 @@ async function flushDeleteQueue(channelId, client) {
           `[Ouvrir le salon](${channelUrl}) _(sans ancrage : le message n’existe plus)_`
       )
       .addFields({ name: "Contenu supprimé", value: truncate(it.snap, 1024) });
-    await sendModLog(guild, embed);
+    await sendServerLog(guild, embed, "message");
     return;
   }
 
@@ -311,7 +363,7 @@ async function flushDeleteQueue(channelId, client) {
     `_Détail : **${items.length}** message(s) (tous inclus)._` +
     `\n\n${bodyLines.join("\n")}`;
   const embeds = chunkTextToEmbeds(`Messages supprimés (${items.length})`, 0xed4245, fullText);
-  await sendModLogEmbeds(guild, embeds);
+  await sendModLogEmbeds(guild, embeds, "message");
 }
 
 /**
@@ -398,7 +450,7 @@ async function logBulkMessagesDeleted(channel, messages) {
       `_**${human.length}** message(s) — liste complète sans troncature** (ordre chronologique, date par message)._` +
       `\n\n${bodyLines.join("\n")}`;
   const embeds = chunkTextToEmbeds(`Suppressions en masse (${human.length} message(s))`, 0xc27c0e, fullText);
-  await sendModLogEmbeds(guild, embeds);
+  await sendModLogEmbeds(guild, embeds, "message");
 }
 
 /**
@@ -427,12 +479,14 @@ async function logMessageEdited(oldMessage, newMessage) {
       { name: "Avant", value: truncate(b, 1024) },
       { name: "Après", value: truncate(a, 1024) }
     );
-  await sendModLog(guild, embed);
+  await sendServerLog(guild, embed, "message");
 }
 
 module.exports = {
+  sendServerLog,
   sendModLog,
   sendModLogEmbeds,
+  resolveLogChannelId,
   baseEmbed,
   truncate,
   enqueueMessageDeleteModlog,

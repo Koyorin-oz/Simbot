@@ -62,7 +62,37 @@ function buildBootstrapLogsV2() {
     c
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
-          "## :lock: Logs modération\nAlertes du bot (sanctions, arrivées, etc.). Les membres ne postent pas ici."
+          "## :lock: Logs modération\nArrivées / départs, rôles, salons, invites, bans, emojis… Les membres ne postent pas ici."
+        )
+      )
+      .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent("_Salon lecture seule — **Components V2**._")
+      )
+  );
+}
+
+function buildBootstrapLogsVoiceV2() {
+  return wrap((c) =>
+    c
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          "## :microphone2: Logs vocal\nRejoint / quitte / change de salon vocal (utile pour repérer le spam soundboard, etc.)."
+        )
+      )
+      .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent("_Salon lecture seule — **Components V2**._")
+      )
+  );
+}
+
+function buildBootstrapLogsMessageV2() {
+  return wrap((c) =>
+    c
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          "## :pencil: Logs messages\nSuppressions et modifications de messages (hors bots)."
         )
       )
       .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
@@ -127,6 +157,8 @@ module.exports = {
   buildBootstrapBienvenueV2,
   buildBootstrapReglementV2,
   buildBootstrapLogsV2,
+  buildBootstrapLogsVoiceV2,
+  buildBootstrapLogsMessageV2,
   buildBootstrapCommandesV2,
   buildBootstrapPanelVocV2,
   buildBootstrapSuggestionsIntroV2

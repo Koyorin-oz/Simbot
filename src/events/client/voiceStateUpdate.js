@@ -7,7 +7,7 @@ const {
   getOrInitSession,
   resolvePrivateRoomNameFromPrefs
 } = require("../../services/privateRoomService");
-const { sendModLog, baseEmbed } = require("../../services/modLogService");
+const { sendServerLog, baseEmbed } = require("../../services/modLogService");
 const { isFrozen } = require("../../services/simbotRuntimeService");
 
 function describeVoiceChannel(ch) {
@@ -101,7 +101,7 @@ module.exports = {
 
         if (description) {
           const log = baseEmbed(title, color).setDescription(description);
-          await sendModLog(newState.guild, log);
+          await sendServerLog(newState.guild, log, "voice");
         }
       }
     }

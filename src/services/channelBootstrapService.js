@@ -9,6 +9,8 @@ const {
   buildBootstrapBienvenueV2,
   buildBootstrapReglementV2,
   buildBootstrapLogsV2,
+  buildBootstrapLogsVoiceV2,
+  buildBootstrapLogsMessageV2,
   buildBootstrapCommandesV2,
   buildBootstrapPanelVocV2,
   buildBootstrapSuggestionsIntroV2
@@ -28,6 +30,8 @@ const CH = {
   ticket: "🎟️ | ticket",
   commandes: "📡 | commandes",
   logsMod: "🔒 | logs-mod",
+  logsVoc: "🔒 | logs-voc",
+  logsMsg: "🔒 | logs-msg",
   ticketsCategory: "🎫 | tickets",
   vocCat: "🎤 | voc — panel",
   lobby: "🎙️ Créer votre salon",
@@ -42,6 +46,8 @@ const MODULE_KEYS = [
   "reglement",
   "verification",
   "logs_mod",
+  "logs_voc",
+  "logs_msg",
   "tickets_panel",
   "salon_commandes",
   "categorie_tickets",
@@ -77,6 +83,8 @@ function applyRealServerIdsToGuildSetup(guildId) {
   const roles = realServerIds?.roles || {};
 
   if (channels.modLogChannelId) setup.modLogChannelId = channels.modLogChannelId;
+  if (channels.voiceLogChannelId) setup.voiceLogChannelId = channels.voiceLogChannelId;
+  if (channels.messageLogChannelId) setup.messageLogChannelId = channels.messageLogChannelId;
   if (channels.commandsChannelId) setup.commandsChannelId = channels.commandsChannelId;
   if (channels.suggestionsChannelId) setup.suggestionsChannelId = channels.suggestionsChannelId;
   if (channels.reglementChannelId) setup.reglementChannelId = channels.reglementChannelId;
@@ -467,6 +475,8 @@ async function ensureSuggestionsChannel(guild) {
 
 function applySetupToRuntimeConfig(setup) {
   if (setup.modLogChannelId) config.modLog.channelId = setup.modLogChannelId;
+  if (setup.voiceLogChannelId) config.modLog.voiceChannelId = setup.voiceLogChannelId;
+  if (setup.messageLogChannelId) config.modLog.messageChannelId = setup.messageLogChannelId;
   if (setup.rulesChannelId) config.welcomeVerify.rulesChannelId = setup.rulesChannelId;
   if (setup.reglementChannelId) config.welcomeVerify.reglementChannelId = setup.reglementChannelId;
   if (setup.repertoireChannelId) config.welcomeVerify.repertoireChannelId = setup.repertoireChannelId;
@@ -502,6 +512,8 @@ function applySetupToRuntimeConfig(setup) {
 function resetRuntimeChannelConfigNoSetup() {
   config.welcome.channelId = "1487455251152769226";
   config.modLog.channelId = "735986472141848678";
+  config.modLog.voiceChannelId = "";
+  config.modLog.messageChannelId = "";
   config.welcomeVerify.reglementChannelId = "1428410217170866177";
   config.welcomeVerify.rulesChannelId = "1428411187300667493";
   config.welcomeVerify.repertoireChannelId = "1428411223531196446";
@@ -564,6 +576,8 @@ async function purgeSetupChannels(guild, old, auditReason = "Réinitialisation s
     old.reglementChannelId,
     old.rulesChannelId,
     old.modLogChannelId,
+    old.voiceLogChannelId,
+    old.messageLogChannelId,
     old.ticketPanelChannelId,
     old.commandsChannelId,
     old.lobbyChannelId,
@@ -636,6 +650,8 @@ function configuredChannelIdForKey(key) {
   if (key === "rulesChannelId") return String(config.welcomeVerify?.rulesChannelId || "").trim();
   if (key === "reglementChannelId") return String(config.welcomeVerify?.reglementChannelId || "").trim();
   if (key === "modLogChannelId") return String(config.modLog?.channelId || "").trim();
+  if (key === "voiceLogChannelId") return String(config.modLog?.voiceChannelId || "").trim();
+  if (key === "messageLogChannelId") return String(config.modLog?.messageChannelId || "").trim();
   if (key === "ticketPanelChannelId") return String(config.tickets?.panelChannelId || "").trim();
   if (key === "commandsChannelId") return String(config.welcomeVerify?.commandsChannelId || "").trim();
   if (key === "suggestionsChannelId") return String(config.suggestions?.channelId || "").trim();
@@ -770,8 +786,16 @@ async function bootstrapChannels(guild, opts = {}) {
     }
   }
 
-  await doInBot("logs_mod", "modLogChannelId", "Logs", CH.logsMod, "Logs moderation.", async (ch) => {
+  await doInBot("logs_mod", "modLogChannelId", "Logs modération", CH.logsMod, "Logs modération / serveur.", async (ch) => {
     await ch.send(buildBootstrapLogsV2());
+  });
+
+  await doInBot("logs_voc", "voiceLogChannelId", "Logs vocal", CH.logsVoc, "Logs join / quit vocal.", async (ch) => {
+    await ch.send(buildBootstrapLogsVoiceV2());
+  });
+
+  await doInBot("logs_msg", "messageLogChannelId", "Logs messages", CH.logsMsg, "Logs suppressions / editions.", async (ch) => {
+    await ch.send(buildBootstrapLogsMessageV2());
   });
 
   await doInBot(

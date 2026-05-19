@@ -199,7 +199,11 @@ module.exports = {
    * TODO(prod): pas de salon mod-log fixe selon owner (mode staff/permissions).
    */
   modLog: {
-    channelId: ch.modLogChannelId || "735986472141848678"
+    channelId: ch.modLogChannelId || "735986472141848678",
+    /** Salon logs vocal (join / quit / move). Vide = meme salon que modLog. */
+    voiceChannelId: String(process.env.LOG_VOICE_CHANNEL_ID || ch.voiceLogChannelId || "").trim(),
+    /** Salon logs messages (suppression / edition). Vide = meme salon que modLog. */
+    messageChannelId: String(process.env.LOG_MESSAGE_CHANNEL_ID || ch.messageLogChannelId || "").trim()
   },
 
   /**

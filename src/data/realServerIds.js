@@ -55,6 +55,9 @@ module.exports = {
 
     // Salon logs serveur (prod) fourni par Koyor.
     modLogChannelId: "735986472141848678",
+    /** Remplir apres /setup-salons (logs_voc / logs_msg) ou .env LOG_VOICE_CHANNEL_ID */
+    voiceLogChannelId: "",
+    messageLogChannelId: "",
 
     commandsChannelId: "735810600348680212",
     suggestionsChannelId: "1386016926475489442"
