@@ -199,11 +199,12 @@ module.exports = {
    * TODO(prod): pas de salon mod-log fixe selon owner (mode staff/permissions).
    */
   modLog: {
+    /** Secours si les deux salons ci-dessous ne sont pas renseignes (legacy). */
     channelId: ch.modLogChannelId || "735986472141848678",
-    /** Salon logs vocal (join / quit / move). Vide = meme salon que modLog. */
-    voiceChannelId: String(process.env.LOG_VOICE_CHANNEL_ID || ch.voiceLogChannelId || "").trim(),
-    /** Salon logs messages (suppression / edition). Vide = meme salon que modLog. */
-    messageChannelId: String(process.env.LOG_MESSAGE_CHANNEL_ID || ch.messageLogChannelId || "").trim()
+    /** Messages supprimes / modifies + roles ajoutes / retires sur un membre → `realServerIds.channels.messageLogChannelId` */
+    messageLogChannelId: String(ch.messageLogChannelId || "").trim(),
+    /** Vocal + salons + pseudos + arrivees / departs / invites / bans… → `realServerIds.channels.serverLogChannelId` */
+    serverLogChannelId: String(ch.serverLogChannelId || ch.voiceLogChannelId || "").trim()
   },
 
   /**

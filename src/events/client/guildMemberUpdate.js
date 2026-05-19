@@ -1,4 +1,4 @@
-const { sendModLog, baseEmbed } = require("../../services/modLogService");
+const { sendServerLog, baseEmbed } = require("../../services/modLogService");
 const { recordNativeMuteFromAudit } = require("../../services/moderatorProfileService");
 const config = require("../../config");
 const { stripWelcomeUnverifiedRoles } = require("../../services/welcomeVerifyService");
@@ -23,6 +23,7 @@ module.exports = {
     ) {
       await stripWelcomeUnverifiedRoles(guild, newMember.id, { passes: 2 }).catch(() => null);
     }
+
     const oldNick = oldMember.nickname ?? null;
     const newNick = newMember.nickname ?? null;
     const nicknameChanged = oldNick !== newNick;
@@ -30,33 +31,32 @@ module.exports = {
     if (added.size === 0 && removed.size === 0 && !nicknameChanged) return;
 
     const formatRole = (role) => `<@&${role.id}> (\`${role.name}\` / \`${role.id}\`)`;
-    const lines = [`**Membre :** ${newMember.user.tag} (<@${newMember.id}>)`];
 
-    /**
-     * On n'affiche que le/les roles CHANGES lors de cet event (diff old vs new),
-     * jamais la liste complete des roles du membre.
-     * Si plusieurs roles ajoutes/retires en meme temps (onboarding, auto-role, bulk bot),
-     * on ne montre que le 1er + compteur « +N autres » pour garder un log propre.
-     */
-    if (added.size) {
-      const first = added.first();
-      const extra = added.size > 1 ? ` *(+${added.size - 1} autre(s) ajoute(s) en meme temps)*` : "";
-      lines.push(`**Role ajoute :** ${formatRole(first)}${extra}`);
+    if (added.size || removed.size) {
+      const roleLines = [`**Membre :** ${newMember.user.tag} (<@${newMember.id}>)`];
+      if (added.size) {
+        const first = added.first();
+        const extra = added.size > 1 ? ` *(+${added.size - 1} autre(s) ajoute(s) en meme temps)*` : "";
+        roleLines.push(`**Role ajoute :** ${formatRole(first)}${extra}`);
+      }
+      if (removed.size) {
+        const first = removed.first();
+        const extra = removed.size > 1 ? ` *(+${removed.size - 1} autre(s) retire(s) en meme temps)*` : "";
+        roleLines.push(`**Role retire :** ${formatRole(first)}${extra}`);
+      }
+      const roleEmbed = baseEmbed("Roles membre mis a jour", 0x5865f2).setDescription(roleLines.join("\n"));
+      await sendServerLog(guild, roleEmbed, "message");
     }
-    if (removed.size) {
-      const first = removed.first();
-      const extra = removed.size > 1 ? ` *(+${removed.size - 1} autre(s) retire(s) en meme temps)*` : "";
-      lines.push(`**Role retire :** ${formatRole(first)}${extra}`);
-    }
+
     if (nicknameChanged) {
-      lines.push(`**Pseudo avant :** ${oldNick ?? "*(aucun)*"}`);
-      lines.push(`**Pseudo apres :** ${newNick ?? "*(aucun)*"}`);
+      const nickEmbed = baseEmbed("Pseudo membre mis a jour", 0x57f287).setDescription(
+        [
+          `**Membre :** ${newMember.user.tag} (<@${newMember.id}>)`,
+          `**Pseudo avant :** ${oldNick ?? "*(aucun)*"}`,
+          `**Pseudo apres :** ${newNick ?? "*(aucun)*"}`
+        ].join("\n")
+      );
+      await sendServerLog(guild, nickEmbed, "server");
     }
-
-    const title = nicknameChanged && added.size === 0 && removed.size === 0
-      ? "Pseudo membre mis a jour"
-      : "Membre mis a jour";
-    const e = baseEmbed(title, 0x57f287).setDescription(lines.join("\n"));
-    await sendModLog(guild, e);
   }
 };

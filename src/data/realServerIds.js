@@ -53,11 +53,17 @@ module.exports = {
 
     verificationChannelId: "1428411187300667493",
 
-    // Salon logs serveur (prod) fourni par Koyor.
+    /** Secours legacy (utilise si serverLogChannelId vide). */
     modLogChannelId: "735986472141848678",
-    /** Remplir apres /setup-salons (logs_voc / logs_msg) ou .env LOG_VOICE_CHANNEL_ID */
-    voiceLogChannelId: "",
+    /**
+     * Salon 1 — messages + roles membre (ajout / retrait).
+     * Colle l’ID du salon Discord ici (clic droit → Copier l’identifiant du salon).
+     */
     messageLogChannelId: "",
+    /**
+     * Salon 2 — vocal (join / quit) + salons (creer / modifier / supprimer) + pseudos + arrivees / departs + invites + bans + emojis…
+     */
+    serverLogChannelId: "",
 
     commandsChannelId: "735810600348680212",
     suggestionsChannelId: "1386016926475489442"

@@ -18,9 +18,8 @@ function buildReply({ setup, lines, warnings }, prefix) {
   if (setup.reglementChannelId) detail.push(`Reglement : <#${setup.reglementChannelId}>`);
   if (setup.rulesChannelId) detail.push(`Verification : <#${setup.rulesChannelId}>`);
   if (setup.commandsChannelId) detail.push(`Commandes (verif) : <#${setup.commandsChannelId}>`);
-  if (setup.modLogChannelId) detail.push(`Logs modération : <#${setup.modLogChannelId}>`);
-  if (setup.voiceLogChannelId) detail.push(`Logs vocal : <#${setup.voiceLogChannelId}>`);
-  if (setup.messageLogChannelId) detail.push(`Logs messages : <#${setup.messageLogChannelId}>`);
+  if (setup.messageLogChannelId) detail.push(`Logs messages & rôles : <#${setup.messageLogChannelId}>`);
+  if (setup.serverLogChannelId) detail.push(`Logs serveur & vocal : <#${setup.serverLogChannelId}>`);
   if (setup.ticketPanelChannelId) detail.push(`Ticket : <#${setup.ticketPanelChannelId}>`);
   if (setup.ticketCategoryId) detail.push(`Categorie tickets : \`${setup.ticketCategoryId}\``);
   if (setup.panelTextChannelId) detail.push(`Panel voc : <#${setup.panelTextChannelId}>`);
@@ -62,9 +61,8 @@ module.exports = {
         .addBooleanOption(bool("bienvenue", "🛫 | bienvenue (haut de liste, sans categorie)"))
         .addBooleanOption(bool("verification", "✅ | vérification (Components V2 + boutons, sans categorie)"))
         .addBooleanOption(bool("reglement", "☑️ 📃 | règlement (sans categorie)"))
-        .addBooleanOption(bool("logs_mod", "🔒 | logs-mod — modération / serveur (dans 🤖 | bot)"))
-        .addBooleanOption(bool("logs_voc", "🔒 | logs-voc — rejoint / quitte le vocal"))
-        .addBooleanOption(bool("logs_msg", "🔒 | logs-msg — messages supprimés / modifiés"))
+        .addBooleanOption(bool("logs_msg", "🔒 | logs-msg — messages + rôles membre (dans 🤖 | bot)"))
+        .addBooleanOption(bool("logs_serveur", "🔒 | logs-serveur — vocal + salons + pseudos + serveur"))
         .addBooleanOption(bool("tickets_panel", "🎟️ | ticket (dans 🤖 | bot)"))
         .addBooleanOption(
           bool(

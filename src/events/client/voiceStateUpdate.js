@@ -101,7 +101,7 @@ module.exports = {
 
         if (description) {
           const log = baseEmbed(title, color).setDescription(description);
-          await sendServerLog(newState.guild, log, "voice");
+          await sendServerLog(newState.guild, log, "server");
         }
       }
     }

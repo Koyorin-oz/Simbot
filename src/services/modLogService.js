@@ -71,10 +71,14 @@ function isDuplicateDeletionLog(messageId) {
 /** @type {Map<string, { guild: import("discord.js").Guild, items: DeleteQueueItem[], timer: NodeJS.Timeout | null }>} */
 const pendingDeletesByChannel = new Map();
 
-/** @typedef {"mod"|"voice"|"message"} LogChannelType */
+/**
+ * - message : suppressions / editions + roles ajoutes / retires sur un membre
+ * - server  : vocal + salons + pseudos + arrivees / departs + invites + bans + emojis…
+ * @typedef {"message"|"server"} LogChannelType
+ */
 
 /** @returns {Promise<import("discord.js").TextChannel | import("discord.js").NewsChannel | import("discord.js").ThreadChannel | null>} */
-async function resolveLogChannel(guild, type = "mod") {
+async function resolveLogChannel(guild, type = "server") {
   const id = resolveLogChannelId(guild?.id, type);
   if (!id || !guild) return null;
   const ch = guild.channels.cache.get(id) || (await guild.channels.fetch(id).catch(() => null));
@@ -103,7 +107,7 @@ async function resolveLogChannel(guild, type = "mod") {
 
 /** @deprecated alias */
 async function resolveModLogChannel(guild) {
-  return resolveLogChannel(guild, "mod");
+  return resolveLogChannel(guild, "server");
 }
 
 /**
@@ -111,7 +115,7 @@ async function resolveModLogChannel(guild) {
  * @param {import("discord.js").EmbedBuilder} embed
  * @param {LogChannelType} [type]
  */
-async function sendServerLog(guild, embed, type = "mod") {
+async function sendServerLog(guild, embed, type = "server") {
   const ch = await resolveLogChannel(guild, type);
   if (!ch) return;
   const ok = await ch.send({ embeds: [embed] }).then(() => true).catch((e) => {
@@ -124,11 +128,11 @@ async function sendServerLog(guild, embed, type = "mod") {
 }
 
 async function sendModLog(guild, embed) {
-  return sendServerLog(guild, embed, "mod");
+  return sendServerLog(guild, embed, "server");
 }
 
 /** Envoie plusieurs embeds découpés par paquets de 10 (limite Discord). */
-async function sendModLogEmbeds(guild, embeds, type = "mod") {
+async function sendModLogEmbeds(guild, embeds, type = "message") {
   if (!embeds?.length) return;
   const ch = await resolveLogChannel(guild, type);
   if (!ch) return;
@@ -202,46 +206,63 @@ function readChannelSetupGuild(guildId) {
 }
 
 function resolveModLogChannelId(guildId) {
-  return resolveLogChannelId(guildId, "mod");
+  return resolveLogChannelId(guildId, "server");
+}
+
+function pickId(...candidates) {
+  for (const c of candidates) {
+    const s = String(c || "").trim();
+    if (s) return s;
+  }
+  return "";
 }
 
 /**
  * @param {string} guildId
  * @param {LogChannelType} type
  */
-function resolveLogChannelId(guildId, type = "mod") {
-  const fallbackMod = config.modLog?.channelId || "";
+function resolveLogChannelId(guildId, type = "server") {
+  const fallbackLegacy = config.modLog?.channelId || "";
+
   if (!guildId) {
-    if (type === "voice") return config.modLog?.voiceChannelId || fallbackMod;
-    if (type === "message") return config.modLog?.messageChannelId || fallbackMod;
-    return fallbackMod;
+    if (type === "message") {
+      return pickId(config.modLog?.messageLogChannelId) || fallbackLegacy;
+    }
+    return (
+      pickId(config.modLog?.serverLogChannelId, config.modLog?.voiceChannelId) || fallbackLegacy
+    );
   }
 
   const setup = readChannelSetupGuild(guildId);
   const isProd = guildId === realServerIds?.guildId;
   const channels = isProd ? realServerIds?.channels || {} : {};
 
-  if (type === "mod") {
-    const fromReal = isProd ? String(channels.modLogChannelId || "").trim() : "";
-    const fromSetup = String(setup?.modLogChannelId || "").trim();
-    return fromSetup || fromReal || fallbackMod;
-  }
-
-  if (type === "voice") {
-    const fromReal = isProd ? String(channels.voiceLogChannelId || "").trim() : "";
-    const fromSetup = String(setup?.voiceLogChannelId || "").trim();
-    const fromEnv = String(config.modLog?.voiceChannelId || "").trim();
-    return fromSetup || fromReal || fromEnv || resolveLogChannelId(guildId, "mod");
-  }
-
   if (type === "message") {
-    const fromReal = isProd ? String(channels.messageLogChannelId || "").trim() : "";
-    const fromSetup = String(setup?.messageLogChannelId || "").trim();
-    const fromEnv = String(config.modLog?.messageChannelId || "").trim();
-    return fromSetup || fromReal || fromEnv || resolveLogChannelId(guildId, "mod");
+    return (
+      pickId(
+        setup?.messageLogChannelId,
+        isProd && channels.messageLogChannelId,
+        config.modLog?.messageLogChannelId,
+        setup?.modLogChannelId,
+        isProd && channels.modLogChannelId,
+        fallbackLegacy
+      ) || fallbackLegacy
+    );
   }
 
-  return resolveLogChannelId(guildId, "mod");
+  return (
+    pickId(
+      setup?.serverLogChannelId,
+      isProd && channels.serverLogChannelId,
+      config.modLog?.serverLogChannelId,
+      setup?.voiceLogChannelId,
+      isProd && channels.voiceLogChannelId,
+      config.modLog?.voiceChannelId,
+      setup?.modLogChannelId,
+      isProd && channels.modLogChannelId,
+      fallbackLegacy
+    ) || fallbackLegacy
+  );
 }
 
 function baseEmbed(title, color = 0x2b2d31) {

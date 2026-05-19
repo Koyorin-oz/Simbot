@@ -72,12 +72,13 @@ function buildBootstrapLogsV2() {
   );
 }
 
-function buildBootstrapLogsVoiceV2() {
+function buildBootstrapLogsServerV2() {
   return wrap((c) =>
     c
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
-          "## :microphone2: Logs vocal\nRejoint / quitte / change de salon vocal (utile pour repérer le spam soundboard, etc.)."
+          "## :satellite: Logs serveur & vocal\n" +
+            "Vocal (rejoint / quitte / move), **salons** (créer / modifier / supprimer), **pseudos**, arrivées / départs, invites, bans, emojis…"
         )
       )
       .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
@@ -92,7 +93,7 @@ function buildBootstrapLogsMessageV2() {
     c
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
-          "## :pencil: Logs messages\nSuppressions et modifications de messages (hors bots)."
+          "## :pencil: Logs messages & rôles\nSuppressions / modifications de messages + **rôles ajoutés ou retirés** sur un membre (hors bots)."
         )
       )
       .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
@@ -157,7 +158,8 @@ module.exports = {
   buildBootstrapBienvenueV2,
   buildBootstrapReglementV2,
   buildBootstrapLogsV2,
-  buildBootstrapLogsVoiceV2,
+  buildBootstrapLogsServerV2,
+  buildBootstrapLogsVoiceV2: buildBootstrapLogsServerV2,
   buildBootstrapLogsMessageV2,
   buildBootstrapCommandesV2,
   buildBootstrapPanelVocV2,
