@@ -53,17 +53,12 @@ module.exports = {
 
     verificationChannelId: "1428411187300667493",
 
-    /** Secours legacy (utilise si serverLogChannelId vide). */
+    /** Secours legacy (si les deux salons ci-dessous sont introuvables). */
     modLogChannelId: "735986472141848678",
-    /**
-     * Salon 1 — messages + roles membre (ajout / retrait).
-     * Colle l’ID du salon Discord ici (clic droit → Copier l’identifiant du salon).
-     */
-    messageLogChannelId: "",
-    /**
-     * Salon 2 — vocal (join / quit) + salons (creer / modifier / supprimer) + pseudos + arrivees / departs + invites + bans + emojis…
-     */
-    serverLogChannelId: "",
+    /** Salon 1 — messages + rôles membre (ajout / retrait). */
+    messageLogChannelId: "1506322682684379236",
+    /** Salon 2 — vocal + salons + pseudos + arrivées / départs + invites + bans + emojis… */
+    serverLogChannelId: "735986472141848678",
 
     commandsChannelId: "735810600348680212",
     suggestionsChannelId: "1386016926475489442"
