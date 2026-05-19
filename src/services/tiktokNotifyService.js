@@ -7,6 +7,7 @@ const {
 } = require("discord.js");
 const config = require("../config");
 const { isFrozen } = require("./simbotRuntimeService");
+const logger = require("../utils/botLogger");
 
 const TIKTOK_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -132,14 +133,14 @@ async function pollOneSource(client, channel, source) {
     const html = await fetchProfileHtml(source.username);
     liveInfo = parseLiveInfoFromHtml(html, source.username);
   } catch (err) {
-    console.warn(`[TIKTOK_NOTIFY] Erreur @${source.username}:`, err?.message || err);
+    logger.logOnce(`tt-err-${source.username}`, "warn", "TikTok", `@${source.username} : ${err?.message || err}`);
     return;
   }
 
   if (!liveInfo.isLive) {
     if (state.wasLive) {
       client.tiktokNotifyState.set(key, { wasLive: false, lastRoomId: state.lastRoomId });
-      console.log(`[TIKTOK_NOTIFY] @${source.username} n'est plus en live.`);
+      logger.debug("TikTok", `@${source.username} hors live.`);
     }
     return;
   }
@@ -150,9 +151,9 @@ async function pollOneSource(client, channel, source) {
   try {
     await sendTiktokNotification(channel, source, liveInfo);
     client.tiktokNotifyState.set(key, { wasLive: true, lastRoomId: liveInfo.roomId || state.lastRoomId });
-    console.log(`[TIKTOK_NOTIFY] Notif envoyee pour @${source.username} (room ${liveInfo.roomId || "?"}).`);
+    logger.info("TikTok", `Live @${source.username} — notif envoyee.`);
   } catch (err) {
-    console.error(`[TIKTOK_NOTIFY] Echec envoi @${source.username}:`, err?.message || err);
+    logger.error("TikTok", `Echec notif @${source.username}: ${err?.message || err}`);
   }
 }
 
@@ -167,13 +168,13 @@ async function runTiktokNotifyPoll(client) {
 
     const guild = await client.guilds.fetch(tn.guildId).catch(() => null);
     if (!guild) {
-      console.warn(`[TIKTOK_NOTIFY] Guilde introuvable : ${tn.guildId}`);
+      logger.logOnce("tt-guild", "warn", "TikTok", `Guilde introuvable : ${tn.guildId}`);
       return;
     }
 
     const channel = await guild.channels.fetch(tn.channelId).catch(() => null);
     if (!channel?.isTextBased?.()) {
-      console.warn(`[TIKTOK_NOTIFY] Salon texte introuvable : ${tn.channelId}`);
+      logger.logOnce("tt-channel", "warn", "TikTok", `Salon introuvable : ${tn.channelId}`);
       return;
     }
 
@@ -186,9 +187,7 @@ async function runTiktokNotifyPoll(client) {
       !perms?.has(PermissionFlagsBits.EmbedLinks) ||
       !perms?.has(PermissionFlagsBits.MentionEveryone)
     ) {
-      console.warn(
-        "[TIKTOK_NOTIFY] Permissions bot insuffisantes (ViewChannel, SendMessages, EmbedLinks, MentionEveryone)."
-      );
+      logger.logOnce("tt-perms", "warn", "TikTok", "Permissions insuffisantes sur le salon live.");
       return;
     }
 
@@ -215,7 +214,12 @@ function startTiktokNotifyPoller(client) {
     runTiktokNotifyPoll(client).catch(() => null);
   }, 20_000);
 
-  console.log(`[TIKTOK_NOTIFY] Poller actif toutes les ${Math.max(1, Number(tn.pollIntervalMinutes) || 2)} min.`);
+  logger.logOnce(
+    "tt-poller",
+    "info",
+    "TikTok",
+    `Poller live actif (${Math.max(1, Number(tn.pollIntervalMinutes) || 2)} min)`
+  );
 }
 
 function stopTiktokNotifyPoller(client) {

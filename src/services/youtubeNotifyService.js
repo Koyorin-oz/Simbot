@@ -7,6 +7,7 @@ const {
 } = require("discord.js");
 const config = require("../config");
 const { isFrozen } = require("./simbotRuntimeService");
+const logger = require("../utils/botLogger");
 
 const YT_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
@@ -37,8 +38,6 @@ const RSS_URL_BUILDERS = [
     `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`
 ];
 
-/** @type {Map<string, { lastLog: number; suppressed: number }>} */
-const rssErrorThrottle = new Map();
 /** @type {Map<string, Map<string, number>>} sourceKey -> (videoId -> timestamp) */
 const recentlyNotifiedBySource = new Map();
 
@@ -84,27 +83,17 @@ async function pruneNotifiedVideos(prisma, sourceKey) {
   await prisma.youTubeNotifiedVideo.deleteMany({ where: { id: { in: extras.map((r) => r.id) } } });
 }
 
-function rssErrorLogIntervalMs() {
-  return Math.max(5, Number(config.youtubeNotify?.rssErrorLogMinutes) || 30) * 60 * 1000;
-}
-
-function clearRssErrorThrottle(sourceKey) {
-  rssErrorThrottle.delete(sourceKey);
+function clearRssErrorThrottle() {
+  /* legacy no-op */
 }
 
 function logRssErrorThrottled(sourceKey, displayName, message) {
-  const now = Date.now();
-  const prev = rssErrorThrottle.get(sourceKey);
-  if (!prev || now - prev.lastLog >= rssErrorLogIntervalMs()) {
-    const extra = prev?.suppressed ? ` (${prev.suppressed} echecs precedents non affiches)` : "";
-    console.warn(`[YOUTUBE_NOTIFY] RSS ${displayName} (${sourceKey}): ${message}${extra}`);
-    rssErrorThrottle.set(sourceKey, { lastLog: now, suppressed: 0 });
-  } else {
-    rssErrorThrottle.set(sourceKey, {
-      lastLog: prev.lastLog,
-      suppressed: (prev.suppressed || 0) + 1
-    });
-  }
+  logger.logOnce(
+    `yt-rss-err-${sourceKey}`,
+    "warn",
+    "YouTube",
+    `RSS ${displayName} : ${message} (plus de detail avant prochain restart)`
+  );
 }
 
 /** Seules ces chaines (@handle sans @, minuscules) declenchent des notifs — pas de channelId arbitraire. */
@@ -341,22 +330,23 @@ async function resolveSources(sources) {
 
     if (!handleRaw) {
       if (s.channelId) {
-        console.warn(
-          "[YOUTUBE_NOTIFY] Source ignoree : `channelId` seul n'est pas autorise. Ajoute le handle @Carmineoff ou @Carminator.officiel."
+        logger.logOnce(
+          "yt-no-channelid",
+          "warn",
+          "YouTube",
+          "Source ignoree : channelId seul — ajoute @Carmineoff ou @Carminator.officiel."
         );
       }
       continue;
     }
 
     if (BLOCKED_NOTIFY_HANDLES.has(handleNorm)) {
-      console.warn(`[YOUTUBE_NOTIFY] Handle @${handleRaw} sur liste noire — pas de notifs.`);
+      logger.debug("YouTube", `Handle @${handleRaw} sur liste noire.`);
       continue;
     }
 
     if (!handleNorm || !ALLOWED_NOTIFY_HANDLES.has(handleNorm)) {
-      console.warn(
-        `[YOUTUBE_NOTIFY] Handle @${handleRaw} ignore — seules @Carmineoff et @Carminator.officiel sont autorisees.`
-      );
+      logger.debug("YouTube", `Handle @${handleRaw} ignore (liste blanche).`);
       continue;
     }
 
@@ -366,17 +356,15 @@ async function resolveSources(sources) {
         ? explicit
         : await resolveChannelIdFromHandle(handleRaw).catch(() => null);
     if (!id) {
-      console.error(`[YOUTUBE_NOTIFY] Impossible de resoudre le handle @${handleRaw}`);
+      logger.logOnce(`yt-resolve-${handleRaw}`, "error", "YouTube", `Handle @${handleRaw} introuvable.`);
       continue;
     }
     if (!/^UC[\w-]{22}$/.test(id)) {
-      console.error(`[YOUTUBE_NOTIFY] channelId invalide apres resolution @${handleRaw}`);
+      logger.error("YouTube", `channelId invalide apres @${handleRaw}.`);
       continue;
     }
     if (BLOCKED_NOTIFY_CHANNEL_IDS.has(id)) {
-      console.error(
-        `[YOUTUBE_NOTIFY] channelId ${id} sur liste noire (@keketos / kekos) — source @${handleRaw} ignoree.`
-      );
+      logger.debug("YouTube", `channelId ${id} liste noire — @${handleRaw} ignore.`);
       continue;
     }
     const explicitPingRoleId =
@@ -420,7 +408,7 @@ async function pollOneSource(client, prisma, channel, source) {
       create: { sourceKey, lastVideoId: newestId },
       update: { lastVideoId: newestId }
     });
-    console.log(`[YOUTUBE_NOTIFY] Amorcage ${displayName} (${sourceKey}) -> ${newestId} (pas de notif)`);
+    logger.debug("YouTube", `Amorcage ${displayName} → ${newestId}`);
     return;
   }
 
@@ -434,9 +422,7 @@ async function pollOneSource(client, prisma, channel, source) {
    */
   const toPost = idx === -1 ? [] : entries.slice(0, idx).reverse();
   if (idx === -1) {
-    console.warn(
-      `[YOUTUBE_NOTIFY] lastVideoId absent du flux (${displayName}, ${sourceKey}) — resync sans notif vers ${newestId}`
-    );
+    logger.debug("YouTube", `Resync flux ${displayName} → ${newestId}`);
   }
 
   for (const e of toPost) {
@@ -447,23 +433,20 @@ async function pollOneSource(client, prisma, channel, source) {
       })
       .catch(() => null);
     if (alreadyDb) {
-      console.log(`[YOUTUBE_NOTIFY] Skip deja notifie (DB) ${displayName} [video ${e.id}]`);
+      logger.debug("YouTube", `Skip DB ${displayName} ${e.id}`);
       continue;
     }
     if (wasRecentlyNotified(sourceKey, e.id)) {
-      console.log(`[YOUTUBE_NOTIFY] Skip doublon recent ${displayName} [video ${e.id}]`);
+      logger.debug("YouTube", `Skip doublon ${displayName} ${e.id}`);
       continue;
     }
     if (e.publishedAt && now - e.publishedAt.getTime() > maxAgeMs) {
-      console.log(
-        `[YOUTUBE_NOTIFY] Skip notif (publie il y a ${Math.round((now - e.publishedAt.getTime()) / 3600000)}h, max ${Math.round(maxAgeMs / 3600000)}h) ${displayName} ${e.id}`
-      );
+      logger.debug("YouTube", `Skip ancien ${displayName} ${e.id}`);
       continue;
     }
-    console.log(
-      `[YOUTUBE_NOTIFY] Ping ${displayName} (@${handle || "?"}) -> ${
-        pingRoleId ? `role <@&${pingRoleId}>` : "@everyone"
-      } [video ${e.id}]`
+    logger.info(
+      "YouTube",
+      `Nouvelle video : ${displayName} — ${e.title.slice(0, 60)}${e.title.length > 60 ? "…" : ""} (${e.id})`
     );
     try {
       await sendYoutubeNotification(channel, displayName, e.id, e.title, {
@@ -475,11 +458,11 @@ async function pollOneSource(client, prisma, channel, source) {
         await prisma.youTubeNotifiedVideo.create({ data: { sourceKey, videoId: e.id } });
       } catch (dbErr) {
         if (dbErr?.code !== "P2002") {
-          console.error(`[YOUTUBE_NOTIFY] DB dedup:`, dbErr?.message || dbErr);
+          logger.error("YouTube", `DB dedup: ${dbErr?.message || dbErr}`);
         }
       }
     } catch (err) {
-      console.error(`[YOUTUBE_NOTIFY] Envoi echoue (${displayName} ${e.id}):`, err?.message || err);
+      logger.error("YouTube", `Envoi notif echoue ${displayName} ${e.id}: ${err?.message || err}`);
     }
   }
 
@@ -499,13 +482,13 @@ async function runYoutubeNotifyPoll(client) {
 
   const guild = await client.guilds.fetch(yn.guildId).catch(() => null);
   if (!guild) {
-    console.warn(`[YOUTUBE_NOTIFY] Guilde introuvable : ${yn.guildId}`);
+    logger.logOnce("yt-guild", "warn", "YouTube", `Guilde introuvable : ${yn.guildId}`);
     return;
   }
 
   const channel = await guild.channels.fetch(yn.channelId).catch(() => null);
   if (!channel?.isTextBased?.()) {
-    console.warn(`[YOUTUBE_NOTIFY] Salon texte introuvable : ${yn.channelId}`);
+    logger.logOnce("yt-channel", "warn", "YouTube", `Salon introuvable : ${yn.channelId}`);
     return;
   }
 
@@ -517,7 +500,7 @@ async function runYoutubeNotifyPoll(client) {
     !perms?.has(PermissionFlagsBits.SendMessages) ||
     !perms?.has(PermissionFlagsBits.EmbedLinks)
   ) {
-    console.warn("[YOUTUBE_NOTIFY] Permissions bot insuffisantes sur le salon notif.");
+    logger.logOnce("yt-perms", "warn", "YouTube", "Permissions insuffisantes sur le salon notif.");
     return;
   }
 
@@ -526,14 +509,12 @@ async function runYoutubeNotifyPoll(client) {
 
   const needsEveryone = resolved.some((s) => !s.pingRoleId);
   if (needsEveryone && !perms?.has(PermissionFlagsBits.MentionEveryone)) {
-    console.warn(
-      "[YOUTUBE_NOTIFY] Donne au bot **Mentionner @everyone** sur le salon notif, sinon les notifs @everyone (ex. Carmineoff) peuvent echouer."
-    );
+    logger.logOnce("yt-everyone", "warn", "YouTube", "Manque Mention @everyone sur le salon notif.");
   }
 
   for (const src of resolved) {
     await pollOneSource(client, client.prisma, channel, src).catch((err) => {
-      console.error(`[YOUTUBE_NOTIFY] Poll ${src.displayName} (interne):`, err?.message || err);
+      logger.error("YouTube", `Poll ${src.displayName}: ${err?.message || err}`);
     });
   }
   } finally {
@@ -555,8 +536,11 @@ function startYoutubeNotifyPoller(client) {
     runYoutubeNotifyPoll(client).catch(() => null);
   }, 15_000);
 
-  console.log(
-    `[YOUTUBE_NOTIFY] Poller actif toutes les ${yn.pollIntervalMinutes} min -> salon ${yn.channelId}`
+  logger.logOnce(
+    "yt-poller",
+    "info",
+    "YouTube",
+    `Poller actif (${yn.pollIntervalMinutes} min) → salon ${yn.channelId}`
   );
 }
 

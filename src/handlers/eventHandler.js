@@ -17,7 +17,7 @@ function loadEvents(client) {
     bindings.push({ name: event.name, listener, once: Boolean(event.once) });
   }
   client._eventBindings = bindings;
-  console.log(`[EVENTS] ${bindings.length} evenements charges.`);
+  client._eventsLoaded = bindings.length;
   return bindings.length;
 }
 

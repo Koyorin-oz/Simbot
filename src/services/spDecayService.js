@@ -74,7 +74,6 @@ async function processSpDecay(client) {
     const n = await processSpDecayForGuild(client, client.prisma, guild).catch(() => 0);
     total += n;
   }
-  if (total > 0) console.log(`[SP-DECAY] ${total} membre(s) penalise(s) pour inactivite.`);
   return total;
 }
 

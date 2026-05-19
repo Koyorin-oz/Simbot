@@ -57,7 +57,7 @@ function loadCommands(client) {
     }
     client.commands.set(name, command);
   }
-  console.log(`[COMMANDS] ${client.commands.size} commandes chargees.`);
+  client._commandsLoaded = client.commands.size;
   return client.commands.size;
 }
 

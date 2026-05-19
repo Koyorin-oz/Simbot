@@ -1,4 +1,5 @@
 const path = require("node:path");
+process.env.PRISMA_HIDE_UPDATE_MESSAGE = process.env.PRISMA_HIDE_UPDATE_MESSAGE || "1";
 require("dotenv").config({ path: path.join(__dirname, "..", ".env"), override: true });
 const { Client, GatewayIntentBits, Partials, Collection } = require("discord.js");
 const { PrismaClient } = require("@prisma/client");
@@ -39,8 +40,9 @@ const discordToken = String(
     ""
 ).trim();
 if (!discordToken) {
-  console.error(
-    "[BOOT] Token Discord manquant : definis DISCORD_TOKEN (ou BOT_TOKEN / TOKEN) dans .env a la racine du projet."
+  require("./utils/botLogger").error(
+    "BOOT",
+    "Token Discord manquant : DISCORD_TOKEN (ou BOT_TOKEN) dans .env."
   );
   process.exit(1);
 }

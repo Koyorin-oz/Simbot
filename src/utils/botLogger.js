@@ -1,32 +1,84 @@
 /**
- * Logs terminal : par défaut une seule ligne (évite les pavés JSON API / Groq).
- * Détail : `BOT_VERBOSE_LOGS=1` dans `.env` puis redémarrage.
+ * Logs console du bot : niveaux + messages uniques / limites pour Pebble.
+ * BOT_LOG_LEVEL=error|warn|info|debug (defaut: info)
  */
-function isVerboseLogs() {
-  return String(process.env.BOT_VERBOSE_LOGS || "").trim() === "1";
+
+const LEVEL_RANK = { error: 0, warn: 1, info: 2, debug: 3 };
+
+function minLevel() {
+  const raw = String(process.env.BOT_LOG_LEVEL || "info").trim().toLowerCase();
+  return LEVEL_RANK[raw] ?? LEVEL_RANK.info;
+}
+
+function ts() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+function formatLine(level, tag, message) {
+  const icon = { error: "✖", warn: "⚠", info: "●", debug: "…" }[level] || "•";
+  const pad = String(tag || "BOT").padEnd(14).slice(0, 14);
+  return `${ts()} ${icon} ${pad} ${message}`;
+}
+
+function shouldLog(level) {
+  return LEVEL_RANK[level] <= minLevel();
+}
+
+/** @type {Set<string>} */
+const onceKeys = new Set();
+/** @type {Map<string, number>} */
+const throttleUntil = new Map();
+
+/**
+ * @param {"error"|"warn"|"info"|"debug"} level
+ * @param {string} tag
+ * @param {string} message
+ */
+function log(level, tag, message) {
+  if (!shouldLog(level)) return;
+  const line = formatLine(level, tag, message);
+  if (level === "error") console.error(line);
+  else if (level === "warn") console.warn(line);
+  else console.log(line);
+}
+
+function logOnce(key, level, tag, message) {
+  if (onceKeys.has(key)) return;
+  onceKeys.add(key);
+  log(level, tag, message);
+}
+
+function logThrottled(key, intervalMs, level, tag, message) {
+  const now = Date.now();
+  const until = throttleUntil.get(key) || 0;
+  if (now < until) return;
+  throttleUntil.set(key, now + Math.max(1000, intervalMs));
+  log(level, tag, message);
 }
 
 /**
- * @param {string} tag
- * @param {unknown} err
- * @param {{ maxDetailChars?: number }} [opts]
+ * Bloc de demarrage lisible (une seule fois).
+ * @param {string[]} lines
  */
-function logApiError(tag, err, opts = {}) {
-  const max = opts.maxDetailChars ?? 600;
-  const raw = String(err?.message || err || "").trim();
-  const first = raw.split(/\r?\n/)[0].slice(0, 180);
-  console.error(`[${tag}]`, first || "(erreur sans message)");
-  if (isVerboseLogs() && raw.length > first.length) {
-    console.error(`[${tag}] détail:\n${raw.slice(0, max)}${raw.length > max ? "…" : ""}`);
+function logBanner(lines) {
+  if (!shouldLog("info")) return;
+  const w = 52;
+  console.log(`\n${"═".repeat(w)}`);
+  for (const line of lines) {
+    console.log(`  ${line}`);
   }
-}
-
-function logVerboseWarn(...args) {
-  if (isVerboseLogs()) console.warn(...args);
+  console.log(`${"═".repeat(w)}\n`);
 }
 
 module.exports = {
-  isVerboseLogs,
-  logApiError,
-  logVerboseWarn
+  log,
+  logOnce,
+  logThrottled,
+  logBanner,
+  error: (tag, msg) => log("error", tag, msg),
+  warn: (tag, msg) => log("warn", tag, msg),
+  info: (tag, msg) => log("info", tag, msg),
+  debug: (tag, msg) => log("debug", tag, msg)
 };

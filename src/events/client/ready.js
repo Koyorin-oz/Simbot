@@ -14,6 +14,7 @@ const { startYoutubeNotifyPoller } = require("../../services/youtubeNotifyServic
 const { startTiktokNotifyPoller } = require("../../services/tiktokNotifyService");
 const { startTempBanScheduler } = require("../../services/tempBanScheduler");
 const { applyBotPresence, applyBotAvatar } = require("../../services/botProfileService");
+const logger = require("../../utils/botLogger");
 
 function startVoiceGainTicker(client) {
   stopVoiceGainTicker(client);
@@ -69,7 +70,7 @@ function startLoanTicker(client) {
   client.loanInterval = setInterval(async () => {
     if (isEconomyPaused()) return;
     const { processed } = await processOverdueLoans(client.prisma).catch(() => ({ processed: 0 }));
-    if (processed > 0) console.log(`[LOANS] ${processed} pret(s) en retard traites.`);
+    if (processed > 0) logger.debug("Economie", `${processed} pret(s) en retard traites.`);
   }, 60 * 60 * 1000);
 }
 
@@ -100,15 +101,11 @@ module.exports = {
   name: "clientReady",
   once: true,
   async execute(client) {
-    console.log(`[READY] Connecte en tant que ${client.user.tag}`);
     await applyBotPresence(client).catch((e) =>
-      console.warn("[READY] Presence bot (bot-apparence):", e?.message || e)
+      logger.logOnce("ready-presence", "warn", "Profil", `Presence : ${e?.message || e}`)
     );
     await applyBotAvatar(client).catch((e) =>
-      console.warn("[READY] Avatar bot (bot-apparence):", e?.message || e)
-    );
-    console.log(
-      `[READY] Instance PID=${process.pid} — si l'IA répond en double : un seul processus doit utiliser ce token (arrêter npm local si Pebble tourne).`
+      logger.logOnce("ready-avatar", "warn", "Profil", `Avatar : ${e?.message || e}`)
     );
     for (const guild of client.guilds.cache.values()) {
       await syncWelcomeVerifyCategoryAccess(guild).catch(() => null);
@@ -132,6 +129,22 @@ module.exports = {
     startYoutubeNotifyPoller(client);
     startTiktokNotifyPoller(client);
     startTempBanScheduler(client);
+
+    const lines = [
+      `Connecte : ${client.user.tag}`,
+      `PID ${process.pid} · ${client.guilds.cache.size} serveur(s)`,
+      `Modules : ${client._commandsLoaded || "?"} commandes · ${client._eventsLoaded || "?"} evenements`
+    ];
+    if (config.economy.spDecay?.enabled) {
+      lines.push("SP decay : actif (sans log a chaque tick)");
+    }
+    if (config.youtubeNotify?.enabled) {
+      lines.push(`YouTube notif : salon ${config.youtubeNotify.channelId}`);
+    }
+    if (config.tiktokNotify?.enabled) {
+      lines.push(`TikTok live : salon ${config.tiktokNotify.channelId}`);
+    }
+    logger.logBanner(lines);
   },
   startVoiceGainTicker,
   stopVoiceGainTicker,

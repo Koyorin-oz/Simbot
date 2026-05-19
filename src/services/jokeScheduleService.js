@@ -166,7 +166,8 @@ function startJokeScheduler(client) {
     });
   }, 15_000);
 
-  console.log(`[JOKES] Planifie ${hours.join("h et ")}h (locale serveur Node). Salon: ${channelId()}`);
+  const logger = require("../utils/botLogger");
+  logger.logOnce("jokes-schedule", "info", "Blagues", `Planifie ${hours.join("h et ")}h → salon ${channelId()}`);
 }
 
 function stopJokeScheduler(client) {
