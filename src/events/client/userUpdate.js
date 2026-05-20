@@ -1,4 +1,4 @@
-const { sendModLog, baseEmbed } = require("../../services/modLogService");
+const { sendServerLog, baseEmbed } = require("../../services/modLogService");
 
 module.exports = {
   name: "userUpdate",
@@ -18,7 +18,7 @@ module.exports = {
           `**Pseudo apres :** ${newName}`
         ].join("\n")
       );
-      await sendModLog(guild, e);
+      await sendServerLog(guild, e, "message");
     }
   }
 };

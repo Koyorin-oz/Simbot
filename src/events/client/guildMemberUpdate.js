@@ -56,7 +56,7 @@ module.exports = {
           `**Pseudo apres :** ${newNick ?? "*(aucun)*"}`
         ].join("\n")
       );
-      await sendServerLog(guild, nickEmbed, "server");
+      await sendServerLog(guild, nickEmbed, "message");
     }
   }
 };
