@@ -454,7 +454,7 @@ module.exports = {
 
   /** Bouton claim rôle Secte Simba — `/secte-simba` (admin). */
   secteSimba: {
-    roleId: "1512830471996965035",
+    roleId: "1512827642423017633",
     buttonLabel: "Rejoindre la Secte Simba",
     buttonEmoji: "🦁"
   }
