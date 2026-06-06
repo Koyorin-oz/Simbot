@@ -33,7 +33,8 @@ const ADMIN_COMMANDS = new Set([
   "desactiver",
   "del-dm-all",
   "dm",
-  "bot-apparence"
+  "bot-apparence",
+  "secte-simba"
 ]);
 const MODERATION_COMMANDS = new Set([
   "bannir",

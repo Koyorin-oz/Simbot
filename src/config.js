@@ -450,5 +450,12 @@ module.exports = {
         displayName: "Carmine"
       }
     ]
+  },
+
+  /** Bouton claim rôle Secte Simba — `/secte-simba` (admin). */
+  secteSimba: {
+    roleId: "1512830471996965035",
+    buttonLabel: "Rejoindre la Secte Simba",
+    buttonEmoji: "🦁"
   }
 };

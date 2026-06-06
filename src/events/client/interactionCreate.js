@@ -434,6 +434,65 @@ module.exports = {
       return;
     }
 
+    if (interaction.isButton() && interaction.customId.startsWith("secte_simba_claim:")) {
+      const {
+        parseSecteSimbaClaimCustomId,
+        isAllowedSecteSimbaRoleId
+      } = require("../../utils/secteSimbaPanel");
+      const roleId = parseSecteSimbaClaimCustomId(interaction.customId);
+      if (!interaction.inGuild()) {
+        await interaction.reply({ content: "Utilisable uniquement sur le serveur.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+      if (!roleId || !isAllowedSecteSimbaRoleId(roleId)) {
+        await interaction.reply({ content: "Ce bouton n'est plus valide.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+      const member = interaction.member;
+      if (!member) {
+        await interaction.reply({ content: "Membre introuvable.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+      if (member.roles.cache.has(roleId)) {
+        await interaction.reply({
+          content: "Tu as déjà ce rôle.",
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+      const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+      if (!role) {
+        await interaction.reply({ content: "Rôle introuvable.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+      const me = interaction.guild.members.me;
+      if (!me?.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        await interaction.reply({
+          content: "Je n'ai pas la permission **Gérer les rôles**.",
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+      if (role.position >= me.roles.highest.position) {
+        await interaction.reply({
+          content: "Ce rôle est trop haut : place mes rôles au-dessus dans Paramètres → Rôles.",
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => null);
+      try {
+        await member.roles.add(role, "Secte Simba : claim via bouton");
+      } catch (e) {
+        await interaction
+          .editReply({ content: `Impossible d'ajouter le rôle : ${(e?.message || e).slice(0, 400)}` })
+          .catch(() => null);
+        return;
+      }
+      await interaction.editReply({ content: "C'est bon — rôle **Secte Simba** ajouté." }).catch(() => null);
+      return;
+    }
+
     if (interaction.isStringSelectMenu() && interaction.customId === "dev_deploy_select") {
       if (!interaction.inGuild()) {
         await interaction.reply({ content: "Utilisable uniquement sur un serveur.", flags: MessageFlags.Ephemeral });
