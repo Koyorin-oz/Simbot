@@ -1,4 +1,5 @@
 const { PermissionFlagsBits } = require("discord.js");
+const config = require("../../config");
 const { addActivityGain, getRandomMessageGain } = require("../../services/economyService");
 const { syncRankRoleForMember } = require("../../services/rankRoleService");
 const { syncLevel3RoleForMember } = require("../../services/levelRoleService");
