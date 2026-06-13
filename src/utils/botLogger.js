@@ -72,11 +72,29 @@ function logBanner(lines) {
   console.log(`${"═".repeat(w)}\n`);
 }
 
+/**
+ * Log erreur API / handler (tag + message tronque).
+ * @param {string} tag
+ * @param {unknown} err
+ * @param {{ maxDetailChars?: number }} [opts]
+ */
+function logApiError(tag, err, opts = {}) {
+  const max = Math.max(80, Number(opts.maxDetailChars) || 400);
+  const msg =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : err?.message || String(err);
+  log("error", tag, String(msg || "Erreur inconnue").slice(0, max));
+}
+
 module.exports = {
   log,
   logOnce,
   logThrottled,
   logBanner,
+  logApiError,
   error: (tag, msg) => log("error", tag, msg),
   warn: (tag, msg) => log("warn", tag, msg),
   info: (tag, msg) => log("info", tag, msg),

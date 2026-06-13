@@ -238,6 +238,9 @@ function resolveLogChannelId(guildId, type = "server") {
   const channels = isProd ? realServerIds?.channels || {} : {};
 
   if (type === "message") {
+    if (!isProd) {
+      return resolveLogChannelId(guildId, "server");
+    }
     return (
       pickId(
         setup?.messageLogChannelId,
