@@ -14,6 +14,7 @@ const { startYoutubeNotifyPoller } = require("../../services/youtubeNotifyServic
 const { startTiktokNotifyPoller } = require("../../services/tiktokNotifyService");
 const { startTempBanScheduler } = require("../../services/tempBanScheduler");
 const { applyBotPresence, applyBotAvatar } = require("../../services/botProfileService");
+const { logIaProvidersStartupStatus } = require("../../services/geminiService");
 const logger = require("../../utils/botLogger");
 
 function startVoiceGainTicker(client) {
@@ -129,6 +130,7 @@ module.exports = {
     startYoutubeNotifyPoller(client);
     startTiktokNotifyPoller(client);
     startTempBanScheduler(client);
+    logIaProvidersStartupStatus();
 
     const lines = [
       `Connecte : ${client.user.tag}`,

@@ -322,6 +322,60 @@ function isAuthRelatedError(err) {
   );
 }
 
+function isGroqFamilyProvider(provider) {
+  const p = String(provider || "").toLowerCase();
+  return p === "groq" || p === "groq-gpt" || p === "groq-llama";
+}
+
+/** Passe au fournisseur suivant dans la chaîne (clé absente, quota, auth sur un autre service…). */
+function shouldAdvanceProviderChain(err, currentProvider, nextProvider) {
+  if (!nextProvider) return false;
+  if (err && typeof err === "object" && err.code === "NO_KEY") return true;
+  if (shouldTryNextModel(err)) return true;
+  if (isAuthRelatedError(err)) {
+    if (isGroqFamilyProvider(currentProvider) && isGroqFamilyProvider(nextProvider)) return false;
+    return true;
+  }
+  return false;
+}
+
+function summarizeProviderFailure(provider, err) {
+  return {
+    provider: String(provider || ""),
+    status: pickHttpStatus(err),
+    message: collectErrorText(err).slice(0, 240)
+  };
+}
+
+function formatAllProvidersFailureMessage(failures) {
+  const lines = (failures || []).map((f) => {
+    const label = providerLabel(f.provider);
+    const st = f.status ? ` HTTP ${f.status}` : "";
+    const msg = f.message ? ` — ${f.message}` : "";
+    return `• **${label}**${st}${msg}`;
+  });
+  return (
+    "**IA indisponible** — tous les fournisseurs ont échoué :\n" +
+    (lines.length ? `${lines.join("\n")}\n\n` : "") +
+    "Sur Pebble : vérifie **`GEMINI_API_KEY`** (principal) et **`GROQ_API_KEY`** (repli) dans `.env`, puis restart."
+  );
+}
+
+function logIaProvidersStartupStatus() {
+  const gem = Boolean(getGeminiApiKey());
+  const groq = Boolean(getGroqApiKey());
+  const chain = getProviderChain().join(" → ");
+  const { log } = require("../utils/botLogger");
+  log("info", "IA", `Chaîne ${chain} | Gemini : ${gem ? "clé présente" : "absente"} | Groq : ${groq ? "clé présente" : "absente"}`);
+  if (!gem && !groq) {
+    log("warn", "IA", "Aucune clé IA — les pings @SimBot renverront une erreur.");
+  } else if (!gem) {
+    log("warn", "IA", "GEMINI_API_KEY absente — uniquement le repli Groq sera utilisé.");
+  } else if (!groq) {
+    log("info", "IA", "GROQ_API_KEY absente — repli Groq désactivé (Gemini seul).");
+  }
+}
+
 function shouldTryNextModel(err) {
   if (isAuthRelatedError(err)) return false;
   const st = pickHttpStatus(err);
@@ -747,6 +801,10 @@ async function groqChatCompletion(modelName, system, user, maxTokens, opts = {})
  * @returns {string|null}
  */
 function formatGeminiErrorForUser(err) {
+  if (err && typeof err === "object" && err.code === "ALL_PROVIDERS_FAILED" && Array.isArray(err.failures) && err.failures.length) {
+    return formatAllProvidersFailureMessage(err.failures);
+  }
+
   const provider = err && typeof err === "object" && err.provider ? String(err.provider) : "groq";
   const label = providerLabel(provider);
 
@@ -784,8 +842,8 @@ function formatGeminiErrorForUser(err) {
           : "https://console.groq.com/docs/rate-limits";
     return `**Limite ${label}** : trop de requêtes.${retryHint} Voir ${doc}`;
   }
-  if (raw.includes("403") || lower.includes("forbidden")) {
-    return `**${label} a refusé la requête** (clé, pays ou droits). Vérifie la clé API ${provider === "gemini" ? "Gemini" : provider === "openai" ? "OpenAI" : "Groq"}.`;
+  if (raw.includes("403") || raw.includes("401") || lower.includes("forbidden") || lower.includes("invalid api key")) {
+    return `**${label} — clé API invalide ou refusée** (${raw.includes("401") ? "401" : "403"}). Mets à jour \`${provider === "gemini" ? "GEMINI" : "GROQ"}_API_KEY\` dans le \`.env\` Pebble puis restart.`;
   }
   if (
     raw.includes("404") ||
@@ -939,6 +997,8 @@ async function runAiUserTurn(userPart, maxOutputTokensOverride, opts = {}) {
   system = `${system}${DISCORD_MENTION_POLICY_APPENDIX}`;
 
   const chain = getProviderChain();
+  /** @type {Array<{ provider: string, status: number|null, message: string }>} */
+  const failures = [];
   let lastErr;
   for (let p = 0; p < chain.length; p++) {
     const provider = chain[p];
@@ -955,24 +1015,29 @@ async function runAiUserTurn(userPart, maxOutputTokensOverride, opts = {}) {
     } catch (e) {
       lastErr = e;
       if (!e.provider) e.provider = provider;
+      failures.push(summarizeProviderFailure(provider, e));
       const hasNext = p < chain.length - 1;
-      if (e.code === "NO_KEY") {
-        if (hasNext) {
-          logVerboseWarn(`[IA] ${providerLabel(provider)} : pas de clé — essai ${providerLabel(chain[p + 1])}…`);
-          continue;
-        }
-        throw e;
-      }
-      if (hasNext && shouldTryNextModel(e)) {
+      if (!hasNext) break;
+      const nextProvider = chain[p + 1];
+      if (!shouldAdvanceProviderChain(e, provider, nextProvider)) break;
+      if (isAuthRelatedError(e) && isGroqFamilyProvider(provider)) {
+        while (p + 1 < chain.length && isGroqFamilyProvider(chain[p + 1])) p++;
+        if (p >= chain.length - 1) break;
         logVerboseWarn(
-          `[IA] ${providerLabel(provider)} indisponible — ${collectErrorText(e).slice(0, 180)} → ${providerLabel(chain[p + 1])}`
+          `[IA] Groq refusé (${collectErrorText(e).slice(0, 120)}) — fin des replis Groq.`
         );
         continue;
       }
-      throw e;
+      logVerboseWarn(
+        `[IA] ${providerLabel(provider)} indisponible — ${collectErrorText(e).slice(0, 180)} → ${providerLabel(chain[p + 1])}`
+      );
     }
   }
-  throw lastErr || new Error("Échec IA : tous les fournisseurs ont échoué.");
+  const err = new Error("Échec IA : tous les fournisseurs ont échoué.");
+  err.code = "ALL_PROVIDERS_FAILED";
+  err.failures = failures;
+  err.provider = failures.length ? failures[failures.length - 1].provider : lastErr?.provider;
+  throw err;
 }
 
 /** Seul cet utilisateur peut demander « sur quel modèle tu es » et obtenir la réponse factuelle. */
@@ -1253,6 +1318,18 @@ async function generateGeminiDinguerie(userHint = "", guild = null) {
 }
 
 /**
+ * Message public ping IA : détail technique si `showDetails` (admin / owner IA).
+ * @param {unknown} err
+ * @param {{ showDetails?: boolean }} [opts]
+ */
+function formatIaPingErrorForUser(err, opts = {}) {
+  if (opts.showDetails) {
+    return formatGeminiErrorForUser(err) || "L’IA ne répond pas (réseau, filtre ou erreur API).";
+  }
+  return "L’IA ne répond pas pour l’instant — souci côté serveur. Réessaie dans quelques minutes.";
+}
+
+/**
  * Réponse à un ping avec message utilisateur (jusqu’à ~2000 car. du message nettoyé).
  * @param {string} strippedMessage Texte sans mention du bot (peut être vide)
  * @param {import("discord.js").Guild|null} [guild]
@@ -1319,6 +1396,8 @@ module.exports = {
   generateGeminiDinguerie,
   generateGeminiPingReply,
   formatGeminiErrorForUser,
+  formatIaPingErrorForUser,
+  logIaProvidersStartupStatus,
   runAiUserTurn,
   runGroqUserTurn,
   resolveActiveIaModel,

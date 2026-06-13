@@ -1,4 +1,4 @@
-const config = require("../../config");
+const { PermissionFlagsBits } = require("discord.js");
 const { addActivityGain, getRandomMessageGain } = require("../../services/economyService");
 const { syncRankRoleForMember } = require("../../services/rankRoleService");
 const { syncLevel3RoleForMember } = require("../../services/levelRoleService");
@@ -15,7 +15,7 @@ const {
   getGeminiAccessChannelId,
   claimIaPingDedupSlot
 } = require("../../services/geminiAccessService");
-const { generateGeminiPingReply, formatGeminiErrorForUser, canDiscloseIaModelToUser, looksLikeModelDisclosureQuestion, resolveActiveIaModel, formatModelDisclosureReply } = require("../../services/geminiService");
+const { generateGeminiPingReply, formatIaPingErrorForUser, formatGeminiErrorForUser, canDiscloseIaModelToUser, looksLikeModelDisclosureQuestion, resolveActiveIaModel, formatModelDisclosureReply } = require("../../services/geminiService");
 const { logApiError } = require("../../utils/botLogger");
 const { handlePrefixSnipeEdit } = require("../../utils/prefixSnipeEditHandler");
 const { rememberMessage } = require("../../services/snipeEditCacheService");
@@ -147,8 +147,11 @@ module.exports = {
               } catch (e) {
                 logApiError("GROQ_PING", e, { maxDetailChars: 800 });
                 replied = true;
+                const showIaDetails =
+                  canDiscloseIaModelToUser(message.author.id) ||
+                  Boolean(member?.permissions?.has(PermissionFlagsBits.Administrator));
                 const hint =
-                  formatGeminiErrorForUser(e) ||
+                  formatIaPingErrorForUser(e, { showDetails: showIaDetails }) ||
                   "L’IA ne répond pas (réseau, filtre ou erreur API). Réessaie plus tard.";
                 await message.reply({ content: hint }).catch(() => null);
               }
