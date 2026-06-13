@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { logVerboseWarn } = require("../utils/botLogger");
+const { expandFrenchChatAbbreviations, buildAbbreviationPromptAppendix } = require("../utils/frenchChatAbbreviations");
 
 /**
  * LLM ping IA / dinguerie — chaîne de repli (ordre par défaut) :
@@ -1218,6 +1219,11 @@ async function generateGeminiPingReply(strippedMessage = "", guild = null, prism
     const meta = await resolveActiveIaModel({ guild });
     return formatModelDisclosureReply(meta);
   }
+
+  const abbrev = expandFrenchChatAbbreviations(msg);
+  const msgForIa = abbrev.text;
+  const abbrevAppendix = buildAbbreviationPromptAppendix(abbrev);
+
   const compactLen = msg.replace(/\s+/g, "").length;
   const envPingMax = Number(
     process.env.GROQ_PING_MAX_TOKENS ||
@@ -1249,9 +1255,9 @@ async function generateGeminiPingReply(strippedMessage = "", guild = null, prism
   }
 
   let userPart = msg
-    ? `${lengthBlock}L'utilisateur t'a mentionné sur Discord. Réponds de façon pertinente, en respectant ton rôle (prompt système). Pas de préambule du type « en tant qu'IA ». Même s'il te demande des pings, applique la règle : aucune mention Discord.\n\nMessage :\n${msg}`
+    ? `${lengthBlock}L'utilisateur t'a mentionné sur Discord. Réponds de façon pertinente, en respectant ton rôle (prompt système). Pas de préambule du type « en tant qu'IA ». Même s'il te demande des pings, applique la règle : aucune mention Discord.${abbrevAppendix}\n\nMessage :\n${msgForIa}`
     : `${lengthBlock}L'utilisateur t'a mentionné sans autre texte. Réponds très court, dans ton style. Aucune mention Discord.`;
-  const pingTone = await getEffectivePingTone(msg, prisma);
+  const pingTone = await getEffectivePingTone(msgForIa, prisma);
   userPart = `${userPart}${
     pingTone === "hard" ? PING_TONE_HARD_NUDGE : pingTone === "soft" ? PING_TONE_SOFT_NUDGE : PING_TONE_NEUTRAL_NUDGE
   }`;
