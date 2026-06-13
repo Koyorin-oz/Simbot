@@ -409,12 +409,15 @@ function extractOpenAiStyleErrorMessage(textBody, data, res) {
  * @param {string} modelName
  * @returns {Record<string, unknown>}
  */
-function buildGroqReasoningParams(modelName) {
+function buildGroqReasoningParams(modelName, opts = {}) {
   const m = String(modelName || "");
   const out = {};
   if (m.startsWith("openai/gpt-oss-")) {
-    const er = String(process.env.GROQ_REASONING_EFFORT || "medium").trim().toLowerCase();
-    out.reasoning_effort = ["low", "medium", "high"].includes(er) ? er : "medium";
+    const ping = Boolean(opts.pingMode);
+    const er = ping
+      ? "low"
+      : String(process.env.GROQ_REASONING_EFFORT || "medium").trim().toLowerCase();
+    out.reasoning_effort = ["low", "medium", "high"].includes(er) ? er : ping ? "low" : "medium";
     /** `true` = le champ `reasoning` est aussi renvoyé (debug). En prod Discord on garde false. */
     out.include_reasoning = String(process.env.GROQ_INCLUDE_REASONING || "").trim() === "1";
     return out;
@@ -432,6 +435,28 @@ function buildGroqReasoningParams(modelName) {
 function usesMaxCompletionTokens(modelName) {
   const m = String(modelName || "");
   return m.includes("gpt-oss") || m.startsWith("qwen/") || m.startsWith("openai/");
+}
+
+/** Réponse visible coupée (budget tokens / emoji custom tronqué). */
+function looksTruncatedAiReply(text, finishReason) {
+  const t = String(text || "").trim();
+  if (!t) return true;
+  const fr = String(finishReason || "").toLowerCase();
+  if (fr === "length" || fr === "max_tokens") return true;
+  if (/<:[\w-]+:\d{1,18}$/.test(t)) return true;
+  if (/<a:[\w-]+:\d{1,18}$/.test(t)) return true;
+  if (/<:[^>\s]{1,100}$/.test(t)) return true;
+  return false;
+}
+
+function getPingOutputTokenBudget() {
+  const envPingMax = Number(
+    process.env.GEMINI_PING_MAX_TOKENS || process.env.GROQ_PING_MAX_TOKENS || process.env.GROK_PING_MAX_TOKENS || 768
+  );
+  const minRaw = Number(process.env.IA_PING_MIN_OUTPUT_TOKENS || 512);
+  const min = Number.isFinite(minRaw) && minRaw >= 128 ? minRaw : 512;
+  const cap = Number.isFinite(envPingMax) && envPingMax > 0 ? envPingMax : 768;
+  return Math.min(8192, Math.max(min, cap));
 }
 
 /**
@@ -453,7 +478,7 @@ function extractGeminiErrorMessage(textBody, data, res) {
  * @param {string} user
  * @param {number} maxTokens
  */
-async function geminiGenerateContent(modelName, system, user, maxTokens) {
+async function geminiGenerateContent(modelName, system, user, maxTokens, opts = {}) {
   const key = getGeminiApiKey();
   if (!key) {
     const e = new Error("Clé API Gemini absente : ajoute GEMINI_API_KEY dans .env (https://aistudio.google.com/apikey)");
@@ -474,6 +499,9 @@ async function geminiGenerateContent(modelName, system, user, maxTokens) {
       maxOutputTokens: cap
     }
   };
+  if (opts.pingMode && /gemini-2\.5/i.test(model)) {
+    body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  }
 
   let res;
   try {
@@ -509,6 +537,7 @@ async function geminiGenerateContent(modelName, system, user, maxTokens) {
   }
 
   const candidate = data?.candidates?.[0];
+  const fr = candidate?.finishReason;
   const parts = candidate?.content?.parts;
   const text =
     Array.isArray(parts) && parts.length
@@ -517,9 +546,8 @@ async function geminiGenerateContent(modelName, system, user, maxTokens) {
           .join("")
           .trim()
       : "";
-  if (text) return text;
+  if (text) return { text, finishReason: fr || null };
 
-  const fr = candidate?.finishReason;
   if (fr === "SAFETY" || fr === "RECITATION") {
     const e = new Error(`Filtre Gemini (${fr}) : la requête ou la réponse a été bloquée.`);
     e.code = "CONTENT_FILTER";
@@ -528,7 +556,7 @@ async function geminiGenerateContent(modelName, system, user, maxTokens) {
     throw e;
   }
 
-  return "";
+  return { text: "", finishReason: fr || null };
 }
 
 /**
@@ -537,7 +565,8 @@ async function geminiGenerateContent(modelName, system, user, maxTokens) {
  * @param {string} user
  * @param {number} maxTokens
  */
-async function openaiChatCompletion(modelName, system, user, maxTokens) {
+async function openaiChatCompletion(modelName, system, user, maxTokens, opts = {}) {
+  void opts;
   const key = getOpenAiApiKey();
   if (!key) {
     const e = new Error("Clé API OpenAI absente : ajoute OPENAI_API_KEY dans .env");
@@ -598,10 +627,11 @@ async function openaiChatCompletion(modelName, system, user, maxTokens) {
 
   const choice = data?.choices?.[0];
   const gmsg = choice?.message;
+  const finishReason = choice?.finish_reason || null;
   const text = gmsg?.content != null ? String(gmsg.content).trim() : "";
-  if (text) return text;
+  if (text) return { text, finishReason };
 
-  const fr = choice?.finish_reason;
+  const fr = finishReason;
   if (fr === "content_filter") {
     const e = new Error("Filtre OpenAI (content_filter) : la requête ou la réponse a été bloquée.");
     e.code = "CONTENT_FILTER";
@@ -617,10 +647,10 @@ async function openaiChatCompletion(modelName, system, user, maxTokens) {
     throw e;
   }
 
-  return "";
+  return { text: "", finishReason: fr };
 }
 
-async function groqChatCompletion(modelName, system, user, maxTokens) {
+async function groqChatCompletion(modelName, system, user, maxTokens, opts = {}) {
   const key = getGroqApiKey();
   if (!key) {
     const e = new Error("Clé API Groq absente : ajoute GROQ_API_KEY dans .env (https://console.groq.com/keys)");
@@ -640,7 +670,7 @@ async function groqChatCompletion(modelName, system, user, maxTokens) {
       { role: "user", content: user }
     ],
     temperature: temp,
-    ...buildGroqReasoningParams(model)
+    ...buildGroqReasoningParams(model, opts)
   };
   if (usesMaxCompletionTokens(model)) {
     body.max_completion_tokens = cap;
@@ -686,10 +716,11 @@ async function groqChatCompletion(modelName, system, user, maxTokens) {
 
   const choice = data?.choices?.[0];
   const gmsg = choice?.message;
+  const finishReason = choice?.finish_reason || null;
   const text = gmsg?.content != null ? String(gmsg.content).trim() : "";
-  if (text) return text;
+  if (text) return { text, finishReason };
 
-  const fr = choice?.finish_reason;
+  const fr = finishReason;
   if (fr === "content_filter") {
     const e = new Error(
       "Filtre Groq (content_filter) : la requête ou la réponse a été bloquée — indépendamment du ton de ton prompt système."
@@ -707,7 +738,7 @@ async function groqChatCompletion(modelName, system, user, maxTokens) {
     throw e;
   }
 
-  return "";
+  return { text: "", finishReason: fr };
 }
 
 /**
@@ -807,9 +838,10 @@ function formatGeminiErrorForUser(err) {
 
 /**
  * Essaie un fournisseur (avec repli de modèles internes si applicable).
- * @param {"gemini"|"openai"|"groq"} provider
+ * @param {string} provider
+ * @param {{ pingMode?: boolean }} [opts]
  */
-async function runProviderModels(provider, system, userPart, maxTok) {
+async function runProviderModels(provider, system, userPart, maxTok, opts = {}) {
   let models = [];
   let callFn = null;
   if (provider === "gemini") {
@@ -836,33 +868,50 @@ async function runProviderModels(provider, system, userPart, maxTok) {
   let lastErr;
   for (let i = 0; i < models.length; i++) {
     const modelName = models[i];
-    try {
-      const text = await callFn(modelName, system, userPart, maxTok);
-      if (!text) {
-        if (i < models.length - 1) {
-          logVerboseWarn(`[IA/${provider}] réponse vide avec "${modelName}", essai d’un autre modèle…`);
+    let tokTry = maxTok;
+    let modelFailed = false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const raw = await callFn(modelName, system, userPart, tokTry, opts);
+        const text = typeof raw === "string" ? raw : String(raw?.text || "").trim();
+        const finishReason = typeof raw === "object" && raw ? raw.finishReason : null;
+        if (!text) {
+          modelFailed = true;
+          break;
+        }
+        if (looksTruncatedAiReply(text, finishReason) && attempt === 0) {
+          tokTry = Math.min(8192, Math.max(tokTry * 2, 768));
+          logVerboseWarn(
+            `[IA/${provider}] réponse tronquée (${finishReason || "?"}) avec "${modelName}" — relance ${tokTry} tokens`
+          );
           continue;
         }
-        const e = new Error(`Réponse vide après tous les modèles ${providerLabel(provider)} essayés.`);
-        e.code = "EMPTY";
-        e.provider = provider;
+        return { text, provider, model: modelName };
+      } catch (e) {
+        lastErr = e;
+        if (!e.provider) e.provider = provider;
+        if (e.code === "NO_KEY") throw e;
+        if (i < models.length - 1 && shouldTryNextModel(e)) {
+          const msg = collectErrorText(e).slice(0, 220);
+          logVerboseWarn(
+            `[IA/${provider}] échec "${modelName}"${msg ? ` — ${msg}${msg.length >= 220 ? "…" : ""}` : ""}`
+          );
+          logVerboseWarn(`[IA/${provider}] essai suivant : "${models[i + 1]}"`);
+          modelFailed = true;
+          break;
+        }
         throw e;
       }
-      return { text, provider, model: modelName };
-    } catch (e) {
+    }
+    if (modelFailed && i < models.length - 1) {
+      logVerboseWarn(`[IA/${provider}] réponse vide avec "${modelName}", essai d’un autre modèle…`);
+      continue;
+    }
+    if (modelFailed) {
+      const e = new Error(`Réponse vide après tous les modèles ${providerLabel(provider)} essayés.`);
+      e.code = "EMPTY";
+      e.provider = provider;
       lastErr = e;
-      if (!e.provider) e.provider = provider;
-      if (e.code === "NO_KEY") throw e;
-      const canRetry = i < models.length - 1 && shouldTryNextModel(e);
-      if (canRetry) {
-        const msg = collectErrorText(e).slice(0, 220);
-        logVerboseWarn(
-          `[IA/${provider}] échec "${modelName}"${msg ? ` — ${msg}${msg.length >= 220 ? "…" : ""}` : ""}`
-        );
-        logVerboseWarn(`[IA/${provider}] essai suivant : "${models[i + 1]}"`);
-        continue;
-      }
-      throw e;
     }
   }
   throw lastErr || new Error(`Échec ${providerLabel(provider)} sans détail.`);
@@ -894,7 +943,7 @@ async function runAiUserTurn(userPart, maxOutputTokensOverride, opts = {}) {
   for (let p = 0; p < chain.length; p++) {
     const provider = chain[p];
     try {
-      const hit = await runProviderModels(provider, system, userPart, maxTok);
+      const hit = await runProviderModels(provider, system, userPart, maxTok, opts);
       if (p > 0) {
         logVerboseWarn(`[IA] repli ${providerLabel(provider)} utilisé (fournisseur principal indisponible).`);
       }
@@ -1225,18 +1274,7 @@ async function generateGeminiPingReply(strippedMessage = "", guild = null, prism
   const abbrevAppendix = buildAbbreviationPromptAppendix(abbrev);
 
   const compactLen = msg.replace(/\s+/g, "").length;
-  const envPingMax = Number(
-    process.env.GROQ_PING_MAX_TOKENS ||
-      process.env.GROK_PING_MAX_TOKENS ||
-      process.env.GEMINI_PING_MAX_TOKENS ||
-      640
-  );
-  let maxTokPing = Number.isFinite(envPingMax) && envPingMax > 0 ? envPingMax : 640;
-  if (!msg) maxTokPing = Math.min(maxTokPing, 140);
-  else if (compactLen <= 18) maxTokPing = Math.min(maxTokPing, 160);
-  else if (msg.length <= 55) maxTokPing = Math.min(maxTokPing, 260);
-  else if (msg.length <= 140) maxTokPing = Math.min(maxTokPing, 380);
-  else if (msg.length <= 320) maxTokPing = Math.min(maxTokPing, 520);
+  let maxTokPing = getPingOutputTokenBudget();
 
   let lengthBlock = "";
   if (!msg) {
@@ -1263,12 +1301,11 @@ async function generateGeminiPingReply(strippedMessage = "", guild = null, prism
   }`;
   if (msg && isNetanyahuPayrollJokeBait(msg)) {
     userPart = `${userPart}${NETANYAHU_PAYROLL_PING_NUDGE}`;
-    maxTokPing = Math.min(maxTokPing, 260);
   }
   if (msg && isMossadOrIsraeliSecretBait(msg)) {
     userPart = `${userPart}${MOSSAD_PING_TURN_NUDGE}`;
   }
-  const hit = await runAiUserTurn(userPart, maxTokPing, { guild });
+  const hit = await runAiUserTurn(userPart, maxTokPing, { guild, pingMode: true });
   return hit.text;
 }
 
