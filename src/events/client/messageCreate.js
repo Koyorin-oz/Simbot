@@ -15,7 +15,7 @@ const {
   getGeminiAccessChannelId,
   claimIaPingDedupSlot
 } = require("../../services/geminiAccessService");
-const { generateGeminiPingReply, formatGeminiErrorForUser } = require("../../services/geminiService");
+const { generateGeminiPingReply, formatGeminiErrorForUser, canDiscloseIaModelToUser, looksLikeModelDisclosureQuestion, resolveActiveIaModel, formatModelDisclosureReply } = require("../../services/geminiService");
 const { logApiError } = require("../../utils/botLogger");
 const { handlePrefixSnipeEdit } = require("../../utils/prefixSnipeEditHandler");
 const { rememberMessage } = require("../../services/snipeEditCacheService");
@@ -97,8 +97,13 @@ module.exports = {
               "ia_paused",
               "L’IA est **en pause** (`/pause-ia reprendre` ou `/pause-ia restart`). Réessaie quand elle sera réactivée."
             );
-          } else if (!String(process.env.GROQ_API_KEY || process.env.GROK_API_KEY || "").trim()) {
-            await message.reply({ content: "Groq n’est pas configuré (`GROQ_API_KEY` dans `.env`)." }).catch(() => null);
+          } else if (
+            !String(process.env.GEMINI_API_KEY || "").trim() &&
+            !String(process.env.GROQ_API_KEY || process.env.GROK_API_KEY || "").trim()
+          ) {
+            await message
+              .reply({ content: "IA non configurée (`GEMINI_API_KEY` ou `GROQ_API_KEY` dans `.env`)." })
+              .catch(() => null);
             replied = true;
           } else {
             const noCd = skipIaPingCooldown(member, channelIdForIa);
@@ -108,9 +113,32 @@ module.exports = {
               replied = true;
             } else {
               const stripped = stripBotMentions(message.content, botId);
+              if (canDiscloseIaModelToUser(message.author.id) && looksLikeModelDisclosureQuestion(stripped)) {
+                try {
+                  const meta = await resolveActiveIaModel({ guild: message.guild });
+                  if (!noCd) setGeminiCooldown(client, message.guild.id, message.author.id);
+                  replied = true;
+                  await message
+                    .reply({
+                      content: truncateGeminiOut(formatModelDisclosureReply(meta)),
+                      allowedMentions: { parse: [] }
+                    })
+                    .catch(() => null);
+                } catch (e) {
+                  logApiError("IA_MODEL_INFO", e, { maxDetailChars: 400 });
+                  replied = true;
+                  const hint = formatGeminiErrorForUser(e) || "Impossible de déterminer le modèle IA actif.";
+                  await message.reply({ content: hint }).catch(() => null);
+                }
+              } else {
               await message.channel.sendTyping().catch(() => null);
               try {
-                const out = await generateGeminiPingReply(stripped, message.guild, client.prisma);
+                const out = await generateGeminiPingReply(
+                  stripped,
+                  message.guild,
+                  client.prisma,
+                  message.author.id
+                );
                 if (!noCd) setGeminiCooldown(client, message.guild.id, message.author.id);
                 replied = true;
                 await message
@@ -123,6 +151,7 @@ module.exports = {
                   formatGeminiErrorForUser(e) ||
                   "L’IA ne répond pas (réseau, filtre ou erreur API). Réessaie plus tard.";
                 await message.reply({ content: hint }).catch(() => null);
+              }
               }
             }
           }

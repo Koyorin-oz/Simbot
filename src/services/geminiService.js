@@ -3,19 +3,34 @@ const path = require("node:path");
 const { logVerboseWarn } = require("../utils/botLogger");
 
 /**
- * LLM : **Groq** (inférence gratuite avec plafonds) + modèles **Meta Llama 3.x** hébergés chez eux.
+ * LLM ping IA / dinguerie — chaîne de repli (ordre par défaut) :
+ * 1. **Google Gemini** (`GEMINI_API_KEY`)
+ * 2. **Groq GPT** (`GROQ_API_KEY` + `GROQ_GPT_MODEL`, ex. `openai/gpt-oss-20b`) — pas OpenAI.com
+ * 3. **Groq Llama** (même clé Groq, ex. `llama-3.3-70b-versatile`)
  *
- * Ne pas confondre avec **Grok** (xAI / Elon) : autre service, autre URL, autres clés.
- * Une clé `gsk_…` = toujours Groq. L’ancienne config pointait par erreur vers xAI → HTTP 400.
- *
- * API : POST https://api.groq.com/openai/v1/chat/completions
- *
- * Défaut : **openai/gpt-oss-20b** (meilleur rapport qualité/vitesse sur Groq en 2026) puis repli Llama.
- * Pour forcer Gemma / autre : `GROQ_MODEL` + `GROQ_MODEL_FALLBACKS` (voir console Groq / liste models).
+ * Ordre : `IA_PROVIDER_ORDER=gemini,groq-gpt,groq-llama`
  */
-const DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b";
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+const DEFAULT_GROQ_GPT_MODEL = "openai/gpt-oss-20b";
+const DEFAULT_GROQ_LLAMA_MODEL = "llama-3.3-70b-versatile";
+/** @deprecated alias — préfère DEFAULT_GROQ_GPT_MODEL */
+const DEFAULT_GROQ_MODEL = DEFAULT_GROQ_GPT_MODEL;
 
+/** OpenAI.com — hors chaîne par défaut ; activer via `IA_PROVIDER_ORDER` si besoin. */
+const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
+
+const GEMINI_BASE_URL = String(process.env.GEMINI_API_BASE || "https://generativelanguage.googleapis.com/v1beta").replace(
+  /\/$/,
+  ""
+);
+const OPENAI_BASE_URL = String(process.env.OPENAI_API_BASE || "https://api.openai.com/v1").replace(/\/$/, "");
 const GROQ_BASE_URL = String(process.env.GROQ_API_BASE || "https://api.groq.com/openai/v1").replace(/\/$/, "");
+
+const BUILTIN_GEMINI_MODEL_FALLBACKS = ["gemini-2.0-flash", "gemini-2.0-flash-lite"];
+const BUILTIN_GROQ_GPT_FALLBACKS = [];
+const BUILTIN_GROQ_LLAMA_FALLBACKS = ["llama-3.1-8b-instant"];
+/** @deprecated — préfère BUILTIN_GROQ_LLAMA_FALLBACKS */
+const BUILTIN_MODEL_FALLBACKS = BUILTIN_GROQ_LLAMA_FALLBACKS;
 
 /** Fichier canonique pour coller le prompt Groq (sans `/ia-prompt`). */
 const DEFAULT_GROQ_PROMPT_FILE = path.join(__dirname, "..", "data", "groqSystemPrompt.txt");
@@ -79,9 +94,89 @@ function sanitizeAiMentionsForDiscord(s) {
   return t;
 }
 
+function getGeminiApiKey() {
+  return String(process.env.GEMINI_API_KEY || "").trim();
+}
+
+function getOpenAiApiKey() {
+  return String(process.env.OPENAI_API_KEY || "").trim();
+}
+
 /** Clé Groq uniquement. `GROK_API_KEY` = tolérance si le nom a été confondu avec « Grok » (xAI) — préfère `GROQ_API_KEY`. */
 function getGroqApiKey() {
   return String(process.env.GROQ_API_KEY || process.env.GROK_API_KEY || "").trim();
+}
+
+function getProviderChain() {
+  const raw = String(process.env.IA_PROVIDER_ORDER || "gemini,groq-gpt,groq-llama").trim();
+  return [...new Set(raw.split(/[,;\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean))];
+}
+
+function getGroqGptModelsToTry() {
+  const envGpt = String(process.env.GROQ_GPT_MODEL || "").trim();
+  const legacy = String(process.env.GROQ_MODEL || process.env.GROK_MODEL || "").trim();
+  const legacyIsGpt = legacy.includes("gpt-oss") || legacy.startsWith("openai/") || legacy.startsWith("qwen/");
+  const primary = envGpt || (legacyIsGpt ? legacy : "") || DEFAULT_GROQ_GPT_MODEL;
+  let extra = [];
+  if (process.env.GROQ_GPT_MODEL_FALLBACKS !== undefined) {
+    extra = String(process.env.GROQ_GPT_MODEL_FALLBACKS || "")
+      .split(/[,;\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  } else {
+    extra = BUILTIN_GROQ_GPT_FALLBACKS.filter((m) => m !== primary);
+  }
+  return [...new Set([primary, ...extra])];
+}
+
+function getGroqLlamaModelsToTry() {
+  const primary =
+    String(process.env.GROQ_LLAMA_MODEL || DEFAULT_GROQ_LLAMA_MODEL).trim() || DEFAULT_GROQ_LLAMA_MODEL;
+  let extra = [];
+  if (process.env.GROQ_LLAMA_MODEL_FALLBACKS !== undefined || process.env.GROQ_MODEL_FALLBACKS !== undefined) {
+    extra = String(process.env.GROQ_LLAMA_MODEL_FALLBACKS || process.env.GROQ_MODEL_FALLBACKS || "")
+      .split(/[,;\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  } else {
+    extra = BUILTIN_GROQ_LLAMA_FALLBACKS.filter((m) => m !== primary);
+  }
+  return [...new Set([primary, ...extra])];
+}
+
+function getGeminiModelsToTry() {
+  const primary = String(process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL).trim() || DEFAULT_GEMINI_MODEL;
+  let extra = [];
+  if (process.env.GEMINI_MODEL_FALLBACKS !== undefined) {
+    extra = String(process.env.GEMINI_MODEL_FALLBACKS || "")
+      .split(/[,;\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  } else {
+    extra = BUILTIN_GEMINI_MODEL_FALLBACKS.filter((m) => m !== primary);
+  }
+  return [...new Set([primary, ...extra])];
+}
+
+function getOpenAiModelsToTry() {
+  const primary = String(process.env.OPENAI_MODEL || "gpt-4o-mini").trim() || "gpt-4o-mini";
+  let extra = [];
+  if (process.env.OPENAI_MODEL_FALLBACKS !== undefined) {
+    extra = String(process.env.OPENAI_MODEL_FALLBACKS || "")
+      .split(/[,;\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [...new Set([primary, ...extra])];
+}
+
+function providerLabel(provider) {
+  if (provider === "gemini") return "Gemini";
+  if (provider === "groq-gpt") return "Groq GPT";
+  if (provider === "groq-llama") return "Groq Llama";
+  if (provider === "groq") return "Groq";
+  if (provider === "openai") return "OpenAI";
+  return String(provider || "IA");
 }
 
 function loadSystemPrompt() {
@@ -180,8 +275,10 @@ function resetSystemPromptFileToFactory() {
   writeSystemPromptFile(FACTORY_SYSTEM_PROMPT);
 }
 
-/** Dernier recours : Llama (qualité moindre que GPT-OSS / Qwen sur tâches courtes — gardé si quota ou 400). */
-const BUILTIN_MODEL_FALLBACKS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+/** Dernier recours Llama sur Groq (qualité moindre que GPT-OSS). */
+function getModelsToTry() {
+  return [...new Set([...getGroqGptModelsToTry(), ...getGroqLlamaModelsToTry()])];
+}
 
 function collectErrorText(err) {
   if (!err) return "";
@@ -211,20 +308,6 @@ function pickHttpStatus(err) {
     e = e.cause;
   }
   return null;
-}
-
-function getModelsToTry() {
-  const primary = String(process.env.GROQ_MODEL || process.env.GROK_MODEL || DEFAULT_GROQ_MODEL).trim() || DEFAULT_GROQ_MODEL;
-  let extra = [];
-  if (process.env.GROQ_MODEL_FALLBACKS !== undefined || process.env.GROK_MODEL_FALLBACKS !== undefined) {
-    extra = String(process.env.GROQ_MODEL_FALLBACKS || process.env.GROK_MODEL_FALLBACKS || "")
-      .split(/[,;\s]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-  } else {
-    extra = BUILTIN_MODEL_FALLBACKS.filter((m) => m !== primary);
-  }
-  return [...new Set([primary, ...extra])];
 }
 
 function isAuthRelatedError(err) {
@@ -350,11 +433,198 @@ function usesMaxCompletionTokens(modelName) {
   return m.includes("gpt-oss") || m.startsWith("qwen/") || m.startsWith("openai/");
 }
 
+/**
+ * @param {string} textBody
+ * @param {object} data
+ * @param {Response} res
+ */
+function extractGeminiErrorMessage(textBody, data, res) {
+  if (data?.error?.message) return String(data.error.message).trim();
+  if (data?.error?.status) return String(data.error.status).trim();
+  const raw = String(textBody || "").trim();
+  if (raw) return raw.slice(0, 800);
+  return String(res.statusText || `HTTP ${res.status}`);
+}
+
+/**
+ * @param {string} modelName
+ * @param {string} system
+ * @param {string} user
+ * @param {number} maxTokens
+ */
+async function geminiGenerateContent(modelName, system, user, maxTokens) {
+  const key = getGeminiApiKey();
+  if (!key) {
+    const e = new Error("Clé API Gemini absente : ajoute GEMINI_API_KEY dans .env (https://aistudio.google.com/apikey)");
+    e.code = "NO_KEY";
+    e.provider = "gemini";
+    throw e;
+  }
+
+  const cap = Math.min(8192, Math.max(64, Number(maxTokens) || 380));
+  const temp = Math.min(2, Math.max(0, Number(process.env.GEMINI_TEMPERATURE || process.env.GROQ_TEMPERATURE || 1.05) || 1.05));
+  const model = String(modelName || DEFAULT_GEMINI_MODEL).trim() || DEFAULT_GEMINI_MODEL;
+  const url = `${GEMINI_BASE_URL}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+  const body = {
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role: "user", parts: [{ text: user }] }],
+    generationConfig: {
+      temperature: temp,
+      maxOutputTokens: cap
+    }
+  };
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+  } catch (netErr) {
+    const e = new Error(String(netErr?.message || netErr || "Erreur réseau (fetch)"));
+    e.cause = netErr;
+    e.provider = "gemini";
+    throw e;
+  }
+
+  const textBody = await res.text();
+  let data = {};
+  if (textBody) {
+    try {
+      data = JSON.parse(textBody);
+    } catch {
+      data = { _unparsedBody: textBody.slice(0, 600) };
+    }
+  }
+
+  if (!res.ok) {
+    const apiMsg = extractGeminiErrorMessage(textBody, data, res);
+    const e = new Error(apiMsg);
+    e.status = res.status;
+    e.body = data;
+    e.provider = "gemini";
+    throw e;
+  }
+
+  const candidate = data?.candidates?.[0];
+  const parts = candidate?.content?.parts;
+  const text =
+    Array.isArray(parts) && parts.length
+      ? parts
+          .map((p) => (p?.text != null ? String(p.text) : ""))
+          .join("")
+          .trim()
+      : "";
+  if (text) return text;
+
+  const fr = candidate?.finishReason;
+  if (fr === "SAFETY" || fr === "RECITATION") {
+    const e = new Error(`Filtre Gemini (${fr}) : la requête ou la réponse a été bloquée.`);
+    e.code = "CONTENT_FILTER";
+    e.body = data;
+    e.provider = "gemini";
+    throw e;
+  }
+
+  return "";
+}
+
+/**
+ * @param {string} modelName
+ * @param {string} system
+ * @param {string} user
+ * @param {number} maxTokens
+ */
+async function openaiChatCompletion(modelName, system, user, maxTokens) {
+  const key = getOpenAiApiKey();
+  if (!key) {
+    const e = new Error("Clé API OpenAI absente : ajoute OPENAI_API_KEY dans .env");
+    e.code = "NO_KEY";
+    e.provider = "openai";
+    throw e;
+  }
+
+  const cap = Math.min(8192, Math.max(64, Number(maxTokens) || 380));
+  const temp = Math.min(2, Math.max(0, Number(process.env.OPENAI_TEMPERATURE || process.env.GROQ_TEMPERATURE || 1.05) || 1.05));
+  const model = String(modelName || DEFAULT_OPENAI_MODEL).trim() || DEFAULT_OPENAI_MODEL;
+  const url = `${OPENAI_BASE_URL}/chat/completions`;
+  const body = {
+    model,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user }
+    ],
+    temperature: temp,
+    max_tokens: cap
+  };
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`
+      },
+      body: JSON.stringify(body)
+    });
+  } catch (netErr) {
+    const e = new Error(String(netErr?.message || netErr || "Erreur réseau (fetch)"));
+    e.cause = netErr;
+    e.provider = "openai";
+    throw e;
+  }
+
+  const textBody = await res.text();
+  let data = {};
+  if (textBody) {
+    try {
+      data = JSON.parse(textBody);
+    } catch {
+      data = { _unparsedBody: textBody.slice(0, 600) };
+    }
+  }
+
+  if (!res.ok) {
+    const apiMsg = extractOpenAiStyleErrorMessage(textBody, data, res);
+    const e = new Error(apiMsg);
+    e.status = res.status;
+    e.body = data;
+    e.provider = "openai";
+    throw e;
+  }
+
+  const choice = data?.choices?.[0];
+  const gmsg = choice?.message;
+  const text = gmsg?.content != null ? String(gmsg.content).trim() : "";
+  if (text) return text;
+
+  const fr = choice?.finish_reason;
+  if (fr === "content_filter") {
+    const e = new Error("Filtre OpenAI (content_filter) : la requête ou la réponse a été bloquée.");
+    e.code = "CONTENT_FILTER";
+    e.body = data;
+    e.provider = "openai";
+    throw e;
+  }
+  if (gmsg?.refusal) {
+    const e = new Error(String(gmsg.refusal));
+    e.code = "REFUSAL";
+    e.body = data;
+    e.provider = "openai";
+    throw e;
+  }
+
+  return "";
+}
+
 async function groqChatCompletion(modelName, system, user, maxTokens) {
   const key = getGroqApiKey();
   if (!key) {
     const e = new Error("Clé API Groq absente : ajoute GROQ_API_KEY dans .env (https://console.groq.com/keys)");
     e.code = "NO_KEY";
+    e.provider = "groq";
     throw e;
   }
 
@@ -409,6 +679,7 @@ async function groqChatCompletion(modelName, system, user, maxTokens) {
     const e = new Error(apiMsg);
     e.status = res.status;
     e.body = data;
+    e.provider = "groq";
     throw e;
   }
 
@@ -424,12 +695,14 @@ async function groqChatCompletion(modelName, system, user, maxTokens) {
     );
     e.code = "CONTENT_FILTER";
     e.body = data;
+    e.provider = "groq";
     throw e;
   }
   if (gmsg?.refusal) {
     const e = new Error(String(gmsg.refusal));
     e.code = "REFUSAL";
     e.body = data;
+    e.provider = "groq";
     throw e;
   }
 
@@ -442,17 +715,20 @@ async function groqChatCompletion(modelName, system, user, maxTokens) {
  * @returns {string|null}
  */
 function formatGeminiErrorForUser(err) {
+  const provider = err && typeof err === "object" && err.provider ? String(err.provider) : "groq";
+  const label = providerLabel(provider);
+
   if (err && typeof err === "object" && err.code === "EMPTY") {
     return (
-      "Groq a renvoyé une **réponse vide** (souvent : filtre, prompt système très long, ou message bloqué). " +
-      "Réessaie ou augmente `GROQ_PING_MAX_TOKENS` / `GROK_PING_MAX_TOKENS`."
+      `${label} a renvoyé une **réponse vide** (souvent : filtre, prompt système très long, ou message bloqué). ` +
+      "Réessaie ou augmente `GEMINI_PING_MAX_TOKENS` / `GROQ_PING_MAX_TOKENS`."
     );
   }
   if (err && typeof err === "object" && (err.code === "CONTENT_FILTER" || err.code === "REFUSAL")) {
     const raw = collectErrorText(err);
     return (
-      "**Groq a filtré ou refusé** cette interaction (règles côté API). " +
-      (raw && raw.length < 600 ? `\n${raw}` : " Reformule ou change de `GROQ_MODEL`.")
+      `**${label} a filtré ou refusé** cette interaction (règles côté API). ` +
+      (raw && raw.length < 600 ? `\n${raw}` : ` Reformule ou change de modèle (${provider.toUpperCase()}_MODEL).`)
     );
   }
   const raw = collectErrorText(err);
@@ -465,15 +741,19 @@ function formatGeminiErrorForUser(err) {
     raw.includes("429") ||
     lower.includes("rate limit") ||
     lower.includes("too many requests") ||
-    lower.includes("quota")
+    lower.includes("quota") ||
+    lower.includes("resource exhausted")
   ) {
-    return (
-      "**Limite Groq (gratuit)** : trop de requêtes." +
-      `${retryHint} Voir https://console.groq.com/docs/rate-limits et modèle \`GROQ_MODEL\`.`
-    );
+    const doc =
+      provider === "gemini"
+        ? "https://ai.google.dev/gemini-api/docs/rate-limits"
+        : provider === "openai"
+          ? "https://platform.openai.com/docs/guides/rate-limits"
+          : "https://console.groq.com/docs/rate-limits";
+    return `**Limite ${label}** : trop de requêtes.${retryHint} Voir ${doc}`;
   }
   if (raw.includes("403") || lower.includes("forbidden")) {
-    return "**Groq a refusé la requête** (clé, pays ou droits). Vérifie sur https://console.groq.com/";
+    return `**${label} a refusé la requête** (clé, pays ou droits). Vérifie la clé API ${provider === "gemini" ? "Gemini" : provider === "openai" ? "OpenAI" : "Groq"}.`;
   }
   if (
     raw.includes("404") ||
@@ -483,12 +763,16 @@ function formatGeminiErrorForUser(err) {
     lower.includes("model not found") ||
     lower.includes("decommissioned")
   ) {
-    return (
-      "**Modèle Groq inconnu ou retiré.** Mets par ex. `GROQ_MODEL=openai/gpt-oss-20b` ou `llama-3.3-70b-versatile` (liste : https://console.groq.com/docs/models ), puis redémarre."
-    );
+    return `**Modèle ${label} inconnu ou retiré.** Vérifie \`${provider.toUpperCase()}_MODEL\` dans \`.env\`, puis redémarre.`;
   }
   if (lower.includes("api key") || raw.includes("401") || lower.includes("invalid") || lower.includes("unauthorized")) {
-    return "**Clé API Groq** invalide — crée-en une sur https://console.groq.com/keys (préfixe `gsk_`).";
+    const hint =
+      provider === "gemini"
+        ? "https://aistudio.google.com/apikey"
+        : provider === "openai"
+          ? "https://platform.openai.com/api-keys"
+          : "https://console.groq.com/keys (préfixe `gsk_`)";
+    return `**Clé API ${label}** invalide ou absente — ${hint}`;
   }
   if (
     lower.includes("content_policy") ||
@@ -499,25 +783,88 @@ function formatGeminiErrorForUser(err) {
     lower.includes("violates") ||
     lower.includes("refused to")
   ) {
-    return "**Refus / filtre Groq** sur ce contenu. Change de formulation ou de modèle.";
+    return `**Refus / filtre ${label}** sur ce contenu. Change de formulation ou de modèle.`;
   }
   if (lower.includes("fetch") || lower.includes("network") || lower.includes("econnrefused") || lower.includes("enotfound")) {
-    return "**Réseau** : impossible de joindre l’API Groq. Vérifie la connexion du serveur qui héberge le bot.";
+    return `**Réseau** : impossible de joindre l’API ${label}. Vérifie la connexion du serveur qui héberge le bot.`;
   }
   if (pickHttpStatus(err) === 400) {
     const detail = raw.replace(/\s*\|\s*HTTP\s*400\s*$/i, "").trim();
     return (
-      "**HTTP 400 — requête refusée par Groq.** " +
+      `**HTTP 400 — requête refusée par ${label}.** ` +
       (detail && detail !== "Bad Request"
         ? `\n${detail.slice(0, 500)}${detail.length > 500 ? "…" : ""}\n`
         : "") +
-      "Souvent : **`GROQ_MODEL`** invalide ou paramètres. Doc : https://console.groq.com/docs/models"
+      `Vérifie \`${provider.toUpperCase()}_MODEL\` et les paramètres.`
     );
   }
   if (raw.length > 0) {
-    return `**Groq (détail)** : ${raw.slice(0, 550)}${raw.length > 550 ? "…" : ""}`;
+    return `**${label} (détail)** : ${raw.slice(0, 550)}${raw.length > 550 ? "…" : ""}`;
   }
   return null;
+}
+
+/**
+ * Essaie un fournisseur (avec repli de modèles internes si applicable).
+ * @param {"gemini"|"openai"|"groq"} provider
+ */
+async function runProviderModels(provider, system, userPart, maxTok) {
+  let models = [];
+  let callFn = null;
+  if (provider === "gemini") {
+    models = getGeminiModelsToTry();
+    callFn = geminiGenerateContent;
+  } else if (provider === "groq-gpt") {
+    models = getGroqGptModelsToTry();
+    callFn = groqChatCompletion;
+  } else if (provider === "groq-llama") {
+    models = getGroqLlamaModelsToTry();
+    callFn = groqChatCompletion;
+  } else if (provider === "openai") {
+    models = getOpenAiModelsToTry();
+    callFn = openaiChatCompletion;
+  } else if (provider === "groq") {
+    models = getModelsToTry();
+    callFn = groqChatCompletion;
+  } else {
+    const e = new Error(`Fournisseur IA inconnu : ${provider}`);
+    e.code = "UNKNOWN_PROVIDER";
+    throw e;
+  }
+
+  let lastErr;
+  for (let i = 0; i < models.length; i++) {
+    const modelName = models[i];
+    try {
+      const text = await callFn(modelName, system, userPart, maxTok);
+      if (!text) {
+        if (i < models.length - 1) {
+          logVerboseWarn(`[IA/${provider}] réponse vide avec "${modelName}", essai d’un autre modèle…`);
+          continue;
+        }
+        const e = new Error(`Réponse vide après tous les modèles ${providerLabel(provider)} essayés.`);
+        e.code = "EMPTY";
+        e.provider = provider;
+        throw e;
+      }
+      return { text, provider, model: modelName };
+    } catch (e) {
+      lastErr = e;
+      if (!e.provider) e.provider = provider;
+      if (e.code === "NO_KEY") throw e;
+      const canRetry = i < models.length - 1 && shouldTryNextModel(e);
+      if (canRetry) {
+        const msg = collectErrorText(e).slice(0, 220);
+        logVerboseWarn(
+          `[IA/${provider}] échec "${modelName}"${msg ? ` — ${msg}${msg.length >= 220 ? "…" : ""}` : ""}`
+        );
+        logVerboseWarn(`[IA/${provider}] essai suivant : "${models[i + 1]}"`);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr || new Error(`Échec ${providerLabel(provider)} sans détail.`);
 }
 
 /**
@@ -525,13 +872,13 @@ function formatGeminiErrorForUser(err) {
  * @param {number} [maxOutputTokensOverride]
  * @param {{ guild?: import("discord.js").Guild | null }} [opts]
  */
-async function runGroqUserTurn(userPart, maxOutputTokensOverride, opts = {}) {
+async function runAiUserTurn(userPart, maxOutputTokensOverride, opts = {}) {
   const maxTok = Number(
     maxOutputTokensOverride !== undefined && maxOutputTokensOverride !== null && !Number.isNaN(Number(maxOutputTokensOverride))
       ? maxOutputTokensOverride
-      : process.env.GROQ_MAX_TOKENS ||
+      : process.env.GEMINI_MAX_TOKENS ||
+          process.env.GROQ_MAX_TOKENS ||
           process.env.GROK_MAX_TOKENS ||
-          process.env.GEMINI_MAX_TOKENS ||
           380
   );
   let system = loadSystemPrompt();
@@ -540,35 +887,129 @@ async function runGroqUserTurn(userPart, maxOutputTokensOverride, opts = {}) {
     system = `${system}\n\n---\n${emojiBit}`;
   }
   system = `${system}${DISCORD_MENTION_POLICY_APPENDIX}`;
-  const models = getModelsToTry();
+
+  const chain = getProviderChain();
   let lastErr;
-  for (let i = 0; i < models.length; i++) {
-    const modelName = models[i];
+  for (let p = 0; p < chain.length; p++) {
+    const provider = chain[p];
     try {
-      const text = await groqChatCompletion(modelName, system, userPart, maxTok);
-      if (!text) {
-        if (i < models.length - 1) {
-          logVerboseWarn(`[GROQ] réponse vide avec "${modelName}", essai d’un autre modèle…`);
-          continue;
-        }
-        const e = new Error("Réponse vide après tous les modèles essayés.");
-        e.code = "EMPTY";
-        throw e;
+      const hit = await runProviderModels(provider, system, userPart, maxTok);
+      if (p > 0) {
+        logVerboseWarn(`[IA] repli ${providerLabel(provider)} utilisé (fournisseur principal indisponible).`);
       }
-      return sanitizeAiMentionsForDiscord(text);
+      return {
+        text: sanitizeAiMentionsForDiscord(hit.text),
+        provider: hit.provider,
+        model: hit.model
+      };
     } catch (e) {
       lastErr = e;
-      const canRetry = i < models.length - 1 && shouldTryNextModel(e);
-      if (canRetry) {
-        const msg = collectErrorText(e).slice(0, 220);
-        logVerboseWarn(`[GROQ] échec "${modelName}"${msg ? ` — ${msg}${msg.length >= 220 ? "…" : ""}` : ""}`);
-        logVerboseWarn(`[GROQ] essai suivant : "${models[i + 1]}"`);
+      if (!e.provider) e.provider = provider;
+      const hasNext = p < chain.length - 1;
+      if (e.code === "NO_KEY") {
+        if (hasNext) {
+          logVerboseWarn(`[IA] ${providerLabel(provider)} : pas de clé — essai ${providerLabel(chain[p + 1])}…`);
+          continue;
+        }
+        throw e;
+      }
+      if (hasNext && shouldTryNextModel(e)) {
+        logVerboseWarn(
+          `[IA] ${providerLabel(provider)} indisponible — ${collectErrorText(e).slice(0, 180)} → ${providerLabel(chain[p + 1])}`
+        );
         continue;
       }
       throw e;
     }
   }
-  throw lastErr || new Error("Échec Groq sans détail.");
+  throw lastErr || new Error("Échec IA : tous les fournisseurs ont échoué.");
+}
+
+/** Seul cet utilisateur peut demander « sur quel modèle tu es » et obtenir la réponse factuelle. */
+const IA_MODEL_DISCLOSURE_USER_ID = String(process.env.IA_MODEL_DISCLOSURE_USER_ID || "1278372257483456603").trim();
+
+/**
+ * @param {string} msg
+ * @returns {boolean}
+ */
+function looksLikeModelDisclosureQuestion(msg) {
+  const s = String(msg || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  if (!s.trim()) return false;
+  if (
+    /\b(sur\s*)?quel\s*modele\b/.test(s) ||
+    /\b(?:tu\s*)?es\s*sur\s*quel\s*modele\b/.test(s) ||
+    /\bquelle?\s*ia\b/.test(s) ||
+    /\btu\s*(?:es|t\s*es)\s*(?:sur\s*)?quel\s*modele\b/.test(s) ||
+    /\bmodele\s*(?:d\s*)?ia\b/.test(s) ||
+    /\b(?:quelle?|sur\s*quelle?)\s*(?:llm|gpt|gemini|groq)\b/.test(s) ||
+    /\btu\s*tourne?s?\s*sur\s*quoi\b/.test(s) ||
+    /\bc\s*est\s*quoi\s*ton\s*modele\b/.test(s) ||
+    /\bquel\s*modele\s*(?:tu\s*)?(?:utilise|utilises|t\s*utilise)\b/.test(s) ||
+    /\bt\s*es\s*quoi\s*comme\s*ia\b/.test(s)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function canDiscloseIaModelToUser(userId) {
+  return Boolean(IA_MODEL_DISCLOSURE_USER_ID && String(userId || "").trim() === IA_MODEL_DISCLOSURE_USER_ID);
+}
+
+/**
+ * @param {{ provider: string, model: string, fallback?: boolean }} meta
+ */
+function formatModelDisclosureReply(meta) {
+  const chain = getProviderChain();
+  const primary = chain[0] || "gemini";
+  const isFallback = meta.provider !== primary;
+  const fallbackNote = isFallback
+    ? ` _(repli — ${providerLabel(primary)} indisponible)_`
+    : "";
+  return `**Modèle actif :** \`${meta.model}\` — **${providerLabel(meta.provider)}**${fallbackNote}`;
+}
+
+/**
+ * Sonde la chaîne IA (même logique qu’un ping) pour savoir quel modèle répond vraiment.
+ * @param {{ guild?: import("discord.js").Guild | null }} [opts]
+ */
+async function resolveActiveIaModel(opts = {}) {
+  const maxTok = 8;
+  let system = loadSystemPrompt();
+  const emojiBit = await buildGuildCustomEmojiPromptAppendix(opts.guild);
+  if (emojiBit) {
+    system = `${system}\n\n---\n${emojiBit}`;
+  }
+  system = `${system}${DISCORD_MENTION_POLICY_APPENDIX}`;
+
+  const chain = getProviderChain();
+  let lastErr;
+  for (let p = 0; p < chain.length; p++) {
+    const provider = chain[p];
+    try {
+      const hit = await runProviderModels(provider, system, "Réponds uniquement : ok", maxTok);
+      return { provider: hit.provider, model: hit.model };
+    } catch (e) {
+      lastErr = e;
+      if (!e.provider) e.provider = provider;
+      const hasNext = p < chain.length - 1;
+      if (e.code === "NO_KEY") {
+        if (hasNext) continue;
+        throw e;
+      }
+      if (hasNext && shouldTryNextModel(e)) continue;
+      throw e;
+    }
+  }
+  throw lastErr || new Error("Impossible de déterminer le modèle IA actif.");
+}
+
+/** @deprecated alias interne — préfère runAiUserTurn */
+async function runGroqUserTurn(userPart, maxOutputTokensOverride, opts = {}) {
+  return runAiUserTurn(userPart, maxOutputTokensOverride, opts);
 }
 
 /** Rappel court rattaché au tour utilisateur (ping) quand l’accusation Mossad / s. secrets isr. ressort — le 8B ignorait parfois le gros [4bis] seul. */
@@ -757,7 +1198,8 @@ async function generateGeminiDinguerie(userHint = "", guild = null) {
   const userPart = hint
     ? `Consigne / thème pour cette fois : « ${hint.slice(0, 500)} »\nRéponds maintenant, sans préambule du type « voici ».`
     : "Sort une nouvelle « dinguerie » : une à quatre phrases max, sans préambule.";
-  return runGroqUserTurn(userPart, undefined, { guild });
+  const hit = await runAiUserTurn(userPart, undefined, { guild });
+  return hit.text;
 }
 
 /**
@@ -765,11 +1207,16 @@ async function generateGeminiDinguerie(userHint = "", guild = null) {
  * @param {string} strippedMessage Texte sans mention du bot (peut être vide)
  * @param {import("discord.js").Guild|null} [guild]
  * @param {import("@prisma/client").PrismaClient | null} [prisma] Pour le ton (/ia-mode)
+ * @param {string|null} [authorId] Pour la divulgation modèle (utilisateur autorisé uniquement)
  */
-async function generateGeminiPingReply(strippedMessage = "", guild = null, prisma = null) {
+async function generateGeminiPingReply(strippedMessage = "", guild = null, prisma = null, authorId = null) {
   const msg = String(strippedMessage || "").trim().slice(0, 2000);
   if (looksLikePromptExtractionAttempt(msg)) {
     return sanitizeAiMentionsForDiscord(PROMPT_EXTRACT_REFUSAL);
+  }
+  if (canDiscloseIaModelToUser(authorId) && looksLikeModelDisclosureQuestion(msg)) {
+    const meta = await resolveActiveIaModel({ guild });
+    return formatModelDisclosureReply(meta);
   }
   const compactLen = msg.replace(/\s+/g, "").length;
   const envPingMax = Number(
@@ -815,16 +1262,27 @@ async function generateGeminiPingReply(strippedMessage = "", guild = null, prism
   if (msg && isMossadOrIsraeliSecretBait(msg)) {
     userPart = `${userPart}${MOSSAD_PING_TURN_NUDGE}`;
   }
-  return runGroqUserTurn(userPart, maxTokPing, { guild });
+  const hit = await runAiUserTurn(userPart, maxTokPing, { guild });
+  return hit.text;
 }
 
 module.exports = {
   /** @deprecated alias historique export */
-  DEFAULT_GEMINI_MODEL: DEFAULT_GROQ_MODEL,
+  DEFAULT_GEMINI_MODEL,
+  DEFAULT_GROQ_GPT_MODEL,
+  DEFAULT_GROQ_LLAMA_MODEL,
+  DEFAULT_OPENAI_MODEL,
   DEFAULT_GROQ_MODEL,
   generateGeminiDinguerie,
   generateGeminiPingReply,
   formatGeminiErrorForUser,
+  runAiUserTurn,
+  runGroqUserTurn,
+  resolveActiveIaModel,
+  formatModelDisclosureReply,
+  canDiscloseIaModelToUser,
+  looksLikeModelDisclosureQuestion,
+  IA_MODEL_DISCLOSURE_USER_ID,
   loadSystemPrompt,
   getSystemPromptSource,
   writeSystemPromptFile,

@@ -89,12 +89,20 @@ function logApiError(tag, err, opts = {}) {
   log("error", tag, String(msg || "Erreur inconnue").slice(0, max));
 }
 
+/** Logs IA / repli modèle — uniquement si BOT_VERBOSE_LOGS=1 ou niveau debug. */
+function logVerboseWarn(message) {
+  const verbose = String(process.env.BOT_VERBOSE_LOGS || "").trim() === "1";
+  if (!verbose && !shouldLog("debug")) return;
+  log("warn", "IA", String(message || ""));
+}
+
 module.exports = {
   log,
   logOnce,
   logThrottled,
   logBanner,
   logApiError,
+  logVerboseWarn,
   error: (tag, msg) => log("error", tag, msg),
   warn: (tag, msg) => log("warn", tag, msg),
   info: (tag, msg) => log("info", tag, msg),

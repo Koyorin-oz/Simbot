@@ -94,6 +94,7 @@ function geminiCooldownSecondsLeft(client, guildId, userId) {
 function stripBotMentions(content, botId) {
   return String(content || "")
     .replace(new RegExp(`<@!?${botId}>`, "g"), " ")
+    .replace(/@(sim\s*bot|simbabot|simba\s*bot|simba)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
