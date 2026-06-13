@@ -28,7 +28,8 @@ const OPENAI_BASE_URL = String(process.env.OPENAI_API_BASE || "https://api.opena
 const GROQ_BASE_URL = String(process.env.GROQ_API_BASE || "https://api.groq.com/openai/v1").replace(/\/$/, "");
 
 const BUILTIN_GEMINI_MODEL_FALLBACKS = ["gemini-2.0-flash", "gemini-2.0-flash-lite"];
-const BUILTIN_GROQ_GPT_FALLBACKS = [];
+/** Si gpt-oss bloqué chez Groq → repli Llama dans le même tier. */
+const BUILTIN_GROQ_GPT_FALLBACKS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
 const BUILTIN_GROQ_LLAMA_FALLBACKS = ["llama-3.1-8b-instant"];
 /** @deprecated — préfère BUILTIN_GROQ_LLAMA_FALLBACKS */
 const BUILTIN_MODEL_FALLBACKS = BUILTIN_GROQ_LLAMA_FALLBACKS;
@@ -110,7 +111,27 @@ function getGroqApiKey() {
 
 function getProviderChain() {
   const raw = String(process.env.IA_PROVIDER_ORDER || "gemini,groq-gpt,groq-llama").trim();
-  return [...new Set(raw.split(/[,;\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean))];
+  const parsed = [...new Set(raw.split(/[,;\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean))];
+  return normalizeProviderChain(parsed);
+}
+
+/** Ancien Pebble `gemini,openai,groq` → chaîne Groq sans OpenAI.com. */
+function normalizeProviderChain(chain) {
+  const out = [];
+  for (const p of chain) {
+    if (p === "openai") {
+      if (getOpenAiApiKey()) out.push("openai");
+      else if (!out.includes("groq-gpt")) out.push("groq-gpt");
+      continue;
+    }
+    if (p === "groq") {
+      if (!out.includes("groq-gpt")) out.push("groq-gpt");
+      if (!out.includes("groq-llama")) out.push("groq-llama");
+      continue;
+    }
+    if (!out.includes(p)) out.push(p);
+  }
+  return out.length ? out : ["gemini", "groq-gpt", "groq-llama"];
 }
 
 function getGroqGptModelsToTry() {
@@ -311,10 +332,23 @@ function pickHttpStatus(err) {
   return null;
 }
 
-function isAuthRelatedError(err) {
-  const st = pickHttpStatus(err);
-  if (st === 401 || st === 403) return true;
+function isModelOrOrgBlockedError(err) {
   const r = collectErrorText(err).toLowerCase();
+  return (
+    r.includes("blocked at the organization") ||
+    r.includes("blocked at organization") ||
+    (r.includes("model") && r.includes("blocked"))
+  );
+}
+
+function isAuthRelatedError(err) {
+  if (isModelOrOrgBlockedError(err)) return false;
+  const st = pickHttpStatus(err);
+  if (st === 401) return true;
+  const r = collectErrorText(err).toLowerCase();
+  if (st === 403) {
+    return r.includes("invalid api key") || r.includes("incorrect api key") || r.includes("unauthorized");
+  }
   return (
     r.includes("incorrect api key") ||
     r.includes("invalid api key") ||
@@ -347,17 +381,29 @@ function summarizeProviderFailure(provider, err) {
   };
 }
 
+function formatProviderFailureLine(f) {
+  const label = providerLabel(f.provider);
+  const msg = String(f.message || "").toLowerCase();
+  if (f.provider === "gemini" && (f.status === 429 || msg.includes("quota"))) {
+    return `• **${label}** — quota free épuisé (429). Attends le reset ou active la facturation Google AI.`;
+  }
+  if (msg.includes("blocked at the organization") || msg.includes("gpt-oss")) {
+    return `• **${label}** — modèle \`gpt-oss\` bloqué sur ton compte Groq → mets \`GROQ_GPT_MODEL=llama-3.3-70b-versatile\` dans \`.env\`.`;
+  }
+  if (f.provider === "openai" && msg.includes("absente")) {
+    return `• **OpenAI.com** — ignoré (pas de clé). Utilise \`IA_PROVIDER_ORDER=gemini,groq-gpt,groq-llama\`.`;
+  }
+  const st = f.status ? ` HTTP ${f.status}` : "";
+  const detail = f.message ? ` — ${String(f.message).slice(0, 120)}` : "";
+  return `• **${label}**${st}${detail}`;
+}
+
 function formatAllProvidersFailureMessage(failures) {
-  const lines = (failures || []).map((f) => {
-    const label = providerLabel(f.provider);
-    const st = f.status ? ` HTTP ${f.status}` : "";
-    const msg = f.message ? ` — ${f.message}` : "";
-    return `• **${label}**${st}${msg}`;
-  });
+  const lines = (failures || []).map(formatProviderFailureLine);
   return (
-    "**IA indisponible** — tous les fournisseurs ont échoué :\n" +
+    "**IA indisponible** pour l’instant.\n" +
     (lines.length ? `${lines.join("\n")}\n\n` : "") +
-    "Sur Pebble : vérifie **`GEMINI_API_KEY`** (principal) et **`GROQ_API_KEY`** (repli) dans `.env`, puis restart."
+    "**Pebble `.env` :** `GEMINI_API_KEY` + `GROQ_GPT_MODEL=llama-3.3-70b-versatile` + `IA_PROVIDER_ORDER=gemini,groq-gpt,groq-llama` → restart."
   );
 }
 
@@ -378,8 +424,9 @@ function logIaProvidersStartupStatus() {
 
 function shouldTryNextModel(err) {
   if (isAuthRelatedError(err)) return false;
+  if (isModelOrOrgBlockedError(err)) return true;
   const st = pickHttpStatus(err);
-  if (st === 400) return true;
+  if (st === 400 || st === 403) return true;
   const raw = collectErrorText(err);
   const lower = raw.toLowerCase();
   return (
