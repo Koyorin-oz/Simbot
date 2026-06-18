@@ -13,7 +13,7 @@ const { startJokeScheduler } = require("../../services/jokeScheduleService");
 const { startYoutubeNotifyPoller } = require("../../services/youtubeNotifyService");
 const { startTiktokNotifyPoller } = require("../../services/tiktokNotifyService");
 const { startTempBanScheduler } = require("../../services/tempBanScheduler");
-const { applyBotPresence, applyBotAvatar } = require("../../services/botProfileService");
+const { applyBotPresence, applyBotProfileImages } = require("../../services/botProfileService");
 const { logIaProvidersStartupStatus } = require("../../services/geminiService");
 const logger = require("../../utils/botLogger");
 
@@ -105,8 +105,8 @@ module.exports = {
     await applyBotPresence(client).catch((e) =>
       logger.logOnce("ready-presence", "warn", "Profil", `Presence : ${e?.message || e}`)
     );
-    await applyBotAvatar(client).catch((e) =>
-      logger.logOnce("ready-avatar", "warn", "Profil", `Avatar : ${e?.message || e}`)
+    await applyBotProfileImages(client).catch((e) =>
+      logger.logOnce("ready-avatar", "warn", "Profil", `Avatar/banniere : ${e?.message || e}`)
     );
     for (const guild of client.guilds.cache.values()) {
       await syncWelcomeVerifyCategoryAccess(guild).catch(() => null);

@@ -4,6 +4,7 @@ const {
   getBotRuntimeSettings,
   applyBotPresence,
   applyBotAvatar,
+  applyBotBanner,
   fetchImageBuffer,
   isHttpImageUrl,
   parseHexColor,
@@ -30,7 +31,7 @@ const STATUS_CHOICES = [
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("bot-apparence")
-    .setDescription("Présence, photo de profil et modèle d’embed du bot")
+    .setDescription("Présence, photo de profil, bannière et modèle d’embed du bot")
     .setDMPermission(false)
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addSubcommand((sub) =>
@@ -62,6 +63,33 @@ module.exports = {
             .setName("stream_url")
             .setDescription("Obligatoire si type Stream — URL Twitch ou YouTube")
             .setMaxLength(256)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("profil")
+        .setDescription("Photo de profil et/ou bannière du bot (une ou les deux)")
+        .addAttachmentOption((o) =>
+          o.setName("avatar").setDescription("Nouvelle photo de profil (PNG, JPG, GIF, WebP)").setRequired(false)
+        )
+        .addStringOption((o) =>
+          o.setName("avatar_url").setDescription("URL image pour la photo de profil").setMaxLength(512).setRequired(false)
+        )
+        .addAttachmentOption((o) =>
+          o.setName("banniere").setDescription("Nouvelle bannière de profil").setRequired(false)
+        )
+        .addStringOption((o) =>
+          o.setName("banniere_url").setDescription("URL image pour la bannière").setMaxLength(512).setRequired(false)
+        )
+        .addStringOption((o) =>
+          o
+            .setName("retirer")
+            .setDescription("Retire l’avatar et/ou la bannière enregistrés")
+            .addChoices(
+              { name: "Photo de profil", value: "avatar" },
+              { name: "Bannière", value: "banniere" },
+              { name: "Les deux", value: "les_deux" }
+            )
         )
     )
     .addSubcommand((sub) =>
@@ -137,10 +165,12 @@ module.exports = {
             .setDescription("Que réinitialiser")
             .setRequired(true)
             .addChoices(
-              { name: "Tout (présence + embed + avatar)", value: "tout" },
+              { name: "Tout (présence + embed + profil bot)", value: "tout" },
               { name: "Présence uniquement", value: "presence" },
               { name: "Embed uniquement", value: "embed" },
-              { name: "Avatar uniquement", value: "avatar" }
+              { name: "Photo de profil uniquement", value: "avatar" },
+              { name: "Bannière uniquement", value: "banniere" },
+              { name: "Profil bot (PP + bannière)", value: "profil" }
             )
         )
     ),
@@ -188,6 +218,93 @@ module.exports = {
       await interaction.editReply({
         content: `Activité mise à jour : **${type}** « ${texte.slice(0, 80)}${texte.length > 80 ? "…" : ""} »`
       });
+      return;
+    }
+
+    if (sub === "profil") {
+      await deferEphemeral(interaction);
+      const retirer = interaction.options.getString("retirer");
+      if (retirer) {
+        const clearAvatar = retirer === "avatar" || retirer === "les_deux";
+        const clearBanner = retirer === "banniere" || retirer === "les_deux";
+        /** @type {Record<string, string>} */
+        const data = {};
+        if (clearAvatar) data.botAvatarUrl = "";
+        if (clearBanner) data.botBannerUrl = "";
+        await client.prisma.botRuntimeSettings.update({ where: { id: 1 }, data });
+        const errors = [];
+        if (clearAvatar) {
+          try {
+            await applyBotAvatar(client, { remove: true });
+          } catch (e) {
+            errors.push(`PP : ${e?.message || e}`);
+          }
+        }
+        if (clearBanner) {
+          try {
+            await applyBotBanner(client, { remove: true });
+          } catch (e) {
+            errors.push(`Bannière : ${e?.message || e}`);
+          }
+        }
+        const parts = [];
+        if (clearAvatar) parts.push("photo de profil");
+        if (clearBanner) parts.push("bannière");
+        await interaction.editReply({
+          content:
+            (errors.length
+              ? `Partiellement retiré (${parts.join(" + ")}) :\n${errors.join("\n")}`.slice(0, 2000)
+              : `**${parts.join(" et ")}** retirée(s) (Discord + URL enregistrée effacée).`)
+        });
+        return;
+      }
+
+      let avatarUrl = null;
+      let bannerUrl = null;
+      try {
+        avatarUrl = await resolveImageOption(interaction, "avatar", "avatar_url");
+        bannerUrl = await resolveImageOption(interaction, "banniere", "banniere_url");
+      } catch (e) {
+        await interaction.editReply({ content: String(e?.message || e).slice(0, 2000) });
+        return;
+      }
+
+      if (!avatarUrl && !bannerUrl) {
+        await interaction.editReply({
+          content:
+            "Envoie au moins une **image** ou **URL** (`avatar` / `banniere`), ou choisis **retirer**."
+        });
+        return;
+      }
+
+      /** @type {Record<string, string>} */
+      const data = {};
+      if (avatarUrl) data.botAvatarUrl = avatarUrl.slice(0, 512);
+      if (bannerUrl) data.botBannerUrl = bannerUrl.slice(0, 512);
+      await client.prisma.botRuntimeSettings.update({ where: { id: 1 }, data });
+
+      const done = [];
+      const errors = [];
+      if (avatarUrl) {
+        try {
+          await applyBotAvatar(client);
+          done.push("photo de profil");
+        } catch (e) {
+          errors.push(`PP : ${e?.message || e}`);
+        }
+      }
+      if (bannerUrl) {
+        try {
+          await applyBotBanner(client);
+          done.push("bannière");
+        } catch (e) {
+          errors.push(`Bannière : ${e?.message || e}`);
+        }
+      }
+
+      const ok = done.length ? `**${done.join(" et ")}** mise(s) à jour (enregistré pour le prochain restart).` : "";
+      const err = errors.length ? `\nDiscord : ${errors.join(" | ")}` : "";
+      await interaction.editReply({ content: (ok + err).trim().slice(0, 2000) || "Erreur inconnue." });
       return;
     }
 
@@ -348,6 +465,9 @@ module.exports = {
         "**Photo de profil**",
         `- URL enregistrée : ${s.botAvatarUrl ? s.botAvatarUrl : "— (avatar Discord actuel, non forcé)"}`,
         "",
+        "**Bannière**",
+        `- URL enregistrée : ${s.botBannerUrl ? s.botBannerUrl : "— (bannière Discord actuelle, non forcée)"}`,
+        "",
         "**IA (ping @bot)**",
         `- Ton : \`${s.iaPingTone || "auto"}\` (commande \`/ia-mode\`)`,
         "",
@@ -364,24 +484,61 @@ module.exports = {
 
     if (sub === "reinitialiser") {
       await deferEphemeral(interaction);
-      const cible = /** @type {"tout"|"presence"|"embed"|"avatar"} */ (
+      const cible = /** @type {"tout"|"presence"|"embed"|"avatar"|"banniere"|"profil"} */ (
         interaction.options.getString("cible", true)
       );
       await resetBotRuntimeSection(client.prisma, cible);
       await applyBotPresence(client);
-      if (cible === "tout" || cible === "avatar") {
+      if (cible === "tout" || cible === "avatar" || cible === "profil") {
         await applyBotAvatar(client, { remove: true }).catch(() => null);
+      }
+      if (cible === "tout" || cible === "banniere" || cible === "profil") {
+        await applyBotBanner(client, { remove: true }).catch(() => null);
       }
       await interaction.editReply({
         content:
           cible === "tout"
-            ? "Réglages **présence + embed + avatar** remis par défaut."
+            ? "Réglages **présence + embed + profil bot** remis par défaut."
             : cible === "presence"
               ? "Présence remise par défaut et réappliquée."
               : cible === "avatar"
-                ? "Avatar remis par défaut (URL effacée)."
-                : "Modèle embed remis par défaut."
+                ? "Photo de profil remise par défaut (URL effacée)."
+                : cible === "banniere"
+                  ? "Bannière remise par défaut (URL effacée)."
+                  : cible === "profil"
+                    ? "Photo de profil + bannière remises par défaut."
+                    : "Modèle embed remis par défaut."
       });
     }
   }
 };
+
+/**
+ * @param {import("discord.js").ChatInputCommandInteraction} interaction
+ * @param {string} attachmentName
+ * @param {string} urlName
+ * @returns {Promise<string|null>}
+ */
+async function resolveImageOption(interaction, attachmentName, urlName) {
+  const attachment = interaction.options.getAttachment(attachmentName);
+  const urlOpt = interaction.options.getString(urlName);
+  if (!attachment && !urlOpt) return null;
+
+  let imageUrl = "";
+  if (attachment) {
+    const ct = String(attachment.contentType || "");
+    if (ct && !ct.startsWith("image/")) {
+      throw new Error(`La pièce jointe **${attachmentName}** doit être une image (PNG, JPG, GIF, WebP).`);
+    }
+    imageUrl = attachment.url;
+  } else {
+    imageUrl = String(urlOpt || "").trim();
+    if (!isHttpImageUrl(imageUrl)) {
+      throw new Error(
+        `URL **${urlName}** invalide — lien https direct vers une image ou URL Discord CDN.`
+      );
+    }
+  }
+  await fetchImageBuffer(imageUrl);
+  return imageUrl;
+}

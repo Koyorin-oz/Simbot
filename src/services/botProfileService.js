@@ -8,6 +8,7 @@ const DEFAULT_SETTINGS = {
   presenceStatus: "online",
   presenceStreamUrl: "",
   botAvatarUrl: "",
+  botBannerUrl: "",
   embedTitle: "",
   embedDescription: "",
   embedAuthorName: "",
@@ -130,6 +131,37 @@ async function applyBotAvatar(client, opts = {}) {
   await client.user.setAvatar(buf);
 }
 
+/**
+ * Applique la bannière du profil bot depuis `botBannerUrl` (DB).
+ * @param {import("discord.js").Client} client
+ * @param {{ remove?: boolean }} [opts]
+ */
+async function applyBotBanner(client, opts = {}) {
+  if (!client?.user) return;
+  const s = await getBotRuntimeSettings(client.prisma);
+  if (!s) return;
+
+  if (opts.remove) {
+    await client.user.setBanner(null);
+    return;
+  }
+
+  const url = String(s.botBannerUrl || "").trim();
+  if (!url) return;
+
+  const buf = await fetchImageBuffer(url);
+  await client.user.setBanner(buf);
+}
+
+/**
+ * Réapplique avatar + bannière enregistrés (démarrage bot).
+ * @param {import("discord.js").Client} client
+ */
+async function applyBotProfileImages(client) {
+  await applyBotAvatar(client).catch(() => null);
+  await applyBotBanner(client).catch(() => null);
+}
+
 function parseHexColor(input) {
   if (input === null || input === undefined) return null;
   const s = String(input).trim();
@@ -184,7 +216,7 @@ function buildPreviewEmbed(s) {
 
 /**
  * @param {import("@prisma/client").PrismaClient} prisma
- * @param {"presence"|"embed"|"avatar"|"tout"} section
+ * @param {"presence"|"embed"|"avatar"|"banniere"|"profil"|"tout"} section
  */
 async function resetBotRuntimeSection(prisma, section) {
   await ensureSettingsRow(prisma);
@@ -197,6 +229,7 @@ async function resetBotRuntimeSection(prisma, section) {
         presenceStatus: "online",
         presenceStreamUrl: "",
         botAvatarUrl: "",
+        botBannerUrl: "",
         embedTitle: "",
         embedDescription: "",
         embedAuthorName: "",
@@ -230,6 +263,20 @@ async function resetBotRuntimeSection(prisma, section) {
     });
     return;
   }
+  if (section === "banniere") {
+    await prisma.botRuntimeSettings.update({
+      where: { id: SETTINGS_ID },
+      data: { botBannerUrl: "" }
+    });
+    return;
+  }
+  if (section === "profil") {
+    await prisma.botRuntimeSettings.update({
+      where: { id: SETTINGS_ID },
+      data: { botAvatarUrl: "", botBannerUrl: "" }
+    });
+    return;
+  }
   if (section === "embed") {
     await prisma.botRuntimeSettings.update({
       where: { id: SETTINGS_ID },
@@ -255,6 +302,8 @@ module.exports = {
   getBotRuntimeSettings,
   applyBotPresence,
   applyBotAvatar,
+  applyBotBanner,
+  applyBotProfileImages,
   fetchImageBuffer,
   isHttpImageUrl,
   parseHexColor,

@@ -200,6 +200,8 @@ model BotRuntimeSettings {
   presenceStreamUrl    String @default("")
   /** URL image pour la photo de profil du bot (reappliquee au demarrage). Vide = ne pas changer. */
   botAvatarUrl         String @default("")
+  /** URL banniere profil bot (reappliquee au demarrage). Vide = ne pas changer. */
+  botBannerUrl         String @default("")
 
   embedTitle           String @default("")
   embedDescription     String @default("")

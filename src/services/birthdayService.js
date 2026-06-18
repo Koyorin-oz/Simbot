@@ -55,6 +55,39 @@ async function deleteBirthday(prisma, guildId, userId) {
   return Number(affected || 0);
 }
 
+/**
+ * Supprime les anniversaires des membres absents du serveur (partis / bannis).
+ * @param {import("discord.js").Guild} guild
+ * @returns {Promise<{ removed: number, userIds: string[] }>}
+ */
+async function deleteAbsentMemberBirthdays(prisma, guild) {
+  const rows = await listBirthdays(prisma, guild.id);
+  if (!rows.length) return { removed: 0, userIds: [] };
+
+  const absentIds = [];
+  for (const row of rows) {
+    const uid = String(row.userId);
+    const member = guild.members.cache.get(uid) || (await guild.members.fetch(uid).catch(() => null));
+    if (!member) absentIds.push(uid);
+  }
+  if (!absentIds.length) return { removed: 0, userIds: [] };
+
+  let removed = 0;
+  for (const uid of absentIds) {
+    removed += await deleteBirthday(prisma, guild.id, uid);
+  }
+  return { removed, userIds: absentIds };
+}
+
+function parseDiscordUserId(input) {
+  const raw = String(input || "").trim();
+  const m = raw.match(/^(\d{17,22})$/);
+  if (m) return m[1];
+  const mention = raw.match(/^<@!?(\d{17,22})>$/);
+  if (mention) return mention[1];
+  return null;
+}
+
 function getUpcomingBirthdays(rows, now = new Date()) {
   const nowMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const mapped = rows.map((row) => {
@@ -100,4 +133,12 @@ function isLeapYear(year) {
   return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
 }
 
-module.exports = { parseBirthdayInput, upsertBirthday, listBirthdays, deleteBirthday, getUpcomingBirthdays };
+module.exports = {
+  parseBirthdayInput,
+  upsertBirthday,
+  listBirthdays,
+  deleteBirthday,
+  deleteAbsentMemberBirthdays,
+  parseDiscordUserId,
+  getUpcomingBirthdays
+};
