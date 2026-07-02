@@ -55,19 +55,6 @@ model Punishment {
 
 }
 
-model Birthday {
-  id        Int      @id @default(autoincrement())
-  guildId   String
-  userId    String
-  day       Int
-  month     Int
-  year      Int?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([guildId, userId])
-}
-
 model PrivateRoomPrefs {
   id           Int      @id @default(autoincrement())
   guildId      String

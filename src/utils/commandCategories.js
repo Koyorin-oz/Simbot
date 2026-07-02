@@ -14,7 +14,6 @@ const ADMIN_COMMANDS = new Set([
   "admin-stop",
   "admin-reset-recompenses",
   "admin-reset-saison",
-  "adminanniversaire",
   "setup-salons",
   "setup",
   "mode-maj",

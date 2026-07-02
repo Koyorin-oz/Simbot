@@ -28,8 +28,6 @@ const {
 } = require("../../services/inventoryService");
 const { buildVotePanel } = require("../../utils/votePanel");
 const { buildTicTacToePanel, buildConnect4Panel } = require("../../utils/gamesPanels");
-const { parseBirthdayInput, upsertBirthday, listBirthdays, getUpcomingBirthdays } = require("../../services/birthdayService");
-const { buildBirthdayListPanel } = require("../../utils/birthdayPanels");
 const { formatSC } = require("../../utils/currency");
 const {
   GIVEAWAY_JOIN_PREFIX,
@@ -206,6 +204,26 @@ const { readShopBannerAttachment } = require("../../utils/shopBanner");
 module.exports = {
   name: "interactionCreate",
   async execute(client, interaction) {
+    if (
+      interaction.isButton() &&
+      (interaction.customId === "verification_salon_confirm" || interaction.customId === "welcome_phone_verify")
+    ) {
+      if (isFrozen()) {
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction
+            .reply({
+              content: "SimBot est en mode gelé, interaction désactivée temporairement.",
+              flags: MessageFlags.Ephemeral
+            })
+            .catch(() => null);
+        }
+        return;
+      }
+      const { handleWelcomeVerifyButtonInteraction } = require("../../services/welcomeVerifyService");
+      await handleWelcomeVerifyButtonInteraction(interaction);
+      return;
+    }
+
     if (interaction.isChatInputCommand()) {
       let command = client.commands.get(interaction.commandName);
       if (!command) {
@@ -882,39 +900,6 @@ module.exports = {
       const id = Number(interaction.fields.getTextInputValue("punishment_id"));
       await client.prisma.punishment.delete({ where: { id } }).catch(() => null);
       await interaction.reply({ content: `Sanction #${id} supprimee (si existante).`, flags: MessageFlags.Ephemeral });
-      return;
-    }
-
-    if (interaction.isModalSubmit() && interaction.customId === "birthday_set_modal") {
-      const raw = interaction.fields.getTextInputValue("birthday_input");
-      const parsed = parseBirthdayInput(raw);
-      if (!parsed.ok) {
-        await interaction.reply({ content: parsed.error, flags: MessageFlags.Ephemeral });
-        return;
-      }
-
-      await upsertBirthday(
-        client.prisma,
-        interaction.guildId,
-        interaction.user.id,
-        parsed.day,
-        parsed.month,
-        parsed.year
-      );
-
-      const rows = await listBirthdays(client.prisma, interaction.guildId);
-      const upcoming = getUpcomingBirthdays(rows);
-      const panel = await buildBirthdayListPanel(upcoming, interaction.guild);
-
-      const base = parsed.year
-        ? `🎂 Date enregistree: **${String(parsed.day).padStart(2, "0")}/${String(parsed.month).padStart(2, "0")}/${parsed.year}**`
-        : `🎂 Date enregistree: **${String(parsed.day).padStart(2, "0")}/${String(parsed.month).padStart(2, "0")}**`;
-
-      await interaction.reply({
-        content: `${base}\n🎉 Le classement des prochains anniversaires a ete mis a jour :`,
-        flags: MessageFlags.Ephemeral
-      });
-      await interaction.followUp(panel);
       return;
     }
 

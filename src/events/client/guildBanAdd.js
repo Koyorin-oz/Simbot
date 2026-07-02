@@ -1,4 +1,3 @@
-const { deleteBirthday } = require("../../services/birthdayService");
 const { sendModLog, baseEmbed } = require("../../services/modLogService");
 const { recordNativeBanFromAudit } = require("../../services/moderatorProfileService");
 
@@ -7,7 +6,6 @@ const BAN_CHEH_CHANNEL_ID = "738884759287103610";
 module.exports = {
   name: "guildBanAdd",
   async execute(client, ban) {
-    await deleteBirthday(client.prisma, ban.guild.id, ban.user.id).catch(() => null);
     await recordNativeBanFromAudit(client, ban).catch(() => null);
 
     const e = baseEmbed("Membre banni", 0xed4245).setDescription(
