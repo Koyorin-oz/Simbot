@@ -14,6 +14,8 @@ function truncate(str, max = 900) {
 const bulkSuppressUntil = new Map();
 /** @type {Map<string, number>} */
 const recentDeletionLog = new Map();
+/** @type {Set<string>} — une seule alerte console par couple guild/canal/type (evite le flood). */
+const missingLogChannelWarned = new Set();
 
 const BULK_SUPPRESS_MS = 25_000;
 const DEDUP_LOG_MS = 90_000;
@@ -83,11 +85,21 @@ async function resolveLogChannel(guild, type = "server") {
   if (!id || !guild) return null;
   const ch = guild.channels.cache.get(id) || (await guild.channels.fetch(id).catch(() => null));
   if (!ch) {
-    console.warn(`[MODLOG] Canal introuvable (${type}): guild=${guild.id} channel=${id}`);
+    const warnKey = `missing:${guild.id}:${type}:${id}`;
+    if (!missingLogChannelWarned.has(warnKey)) {
+      missingLogChannelWarned.add(warnKey);
+      console.warn(
+        `[MODLOG] Canal introuvable (${type}): guild=${guild.id} channel=${id} — logs desactives pour ce couple (message unique).`
+      );
+    }
     return null;
   }
   if (!ch.isTextBased?.()) {
-    console.warn(`[MODLOG] Canal non textuel (${type}): guild=${guild.id} channel=${id} type=${ch.type}`);
+    const warnKey = `nottext:${guild.id}:${type}:${id}`;
+    if (!missingLogChannelWarned.has(warnKey)) {
+      missingLogChannelWarned.add(warnKey);
+      console.warn(`[MODLOG] Canal non textuel (${type}): guild=${guild.id} channel=${id} type=${ch.type}`);
+    }
     return null;
   }
   const me = guild.members.me;
@@ -98,7 +110,11 @@ async function resolveLogChannel(guild, type = "server") {
       perms?.has(PermissionFlagsBits.SendMessages) &&
       perms?.has(PermissionFlagsBits.EmbedLinks);
     if (!canSend) {
-      console.warn(`[MODLOG] Permissions insuffisantes (${type}): guild=${guild.id} channel=${id}`);
+      const warnKey = `noperms:${guild.id}:${type}:${id}`;
+      if (!missingLogChannelWarned.has(warnKey)) {
+        missingLogChannelWarned.add(warnKey);
+        console.warn(`[MODLOG] Permissions insuffisantes (${type}): guild=${guild.id} channel=${id}`);
+      }
       return null;
     }
   }
@@ -237,17 +253,22 @@ function resolveLogChannelId(guildId, type = "server") {
   const isProd = guildId === realServerIds?.guildId;
   const channels = isProd ? realServerIds?.channels || {} : {};
 
-  if (type === "message") {
-    if (!isProd) {
-      return resolveLogChannelId(guildId, "server");
+  /** Serveur sans config : ne pas reutiliser les IDs prod (canal supprime → flood de warnings). */
+  if (!isProd) {
+    if (type === "message") {
+      return pickId(setup?.messageLogChannelId, setup?.modLogChannelId) || "";
     }
+    return pickId(setup?.serverLogChannelId, setup?.modLogChannelId, setup?.voiceLogChannelId) || "";
+  }
+
+  if (type === "message") {
     return (
       pickId(
         setup?.messageLogChannelId,
-        isProd && channels.messageLogChannelId,
+        channels.messageLogChannelId,
         config.modLog?.messageLogChannelId,
         setup?.modLogChannelId,
-        isProd && channels.modLogChannelId,
+        channels.modLogChannelId,
         fallbackLegacy
       ) || fallbackLegacy
     );
@@ -256,13 +277,13 @@ function resolveLogChannelId(guildId, type = "server") {
   return (
     pickId(
       setup?.serverLogChannelId,
-      isProd && channels.serverLogChannelId,
+      channels.serverLogChannelId,
       config.modLog?.serverLogChannelId,
       setup?.voiceLogChannelId,
-      isProd && channels.voiceLogChannelId,
+      channels.voiceLogChannelId,
       config.modLog?.voiceChannelId,
       setup?.modLogChannelId,
-      isProd && channels.modLogChannelId,
+      channels.modLogChannelId,
       fallbackLegacy
     ) || fallbackLegacy
   );

@@ -13,8 +13,7 @@ const {
 } = require("discord.js");
 const config = require("../config");
 const {
-  completeWelcomeVerification,
-  VERIFICATION_BUTTON_CUSTOM_ID
+  handleWelcomeVerifyButtonInteraction
 } = require("../services/welcomeVerifyService");
 const {
   buildPanelPayload,
@@ -60,37 +59,7 @@ function parsePrvOwner(customId) {
 }
 
 async function handleWelcomeInteractions(client, interaction) {
-  const v = config.welcomeVerify;
-  if (!v?.enabled) return false;
-
-  const isVerifyButton =
-    interaction.isButton() &&
-    (interaction.customId === VERIFICATION_BUTTON_CUSTOM_ID ||
-      interaction.customId === "welcome_phone_verify");
-
-  if (isVerifyButton) {
-    await interaction.deferUpdate().catch(() => null);
-
-    const guild = interaction.guild;
-    const member = interaction.member;
-    if (!guild || !member) return true;
-
-    if (member.pending) {
-      return true;
-    }
-
-    const me = guild.members.me;
-    if (!me?.permissions.has(PermissionFlagsBits.ManageRoles)) return true;
-
-    try {
-      await completeWelcomeVerification(guild, interaction.user.id);
-    } catch (e) {
-      console.warn("[welcomeVerify] interaction", e?.message || e);
-    }
-    return true;
-  }
-
-  return false;
+  return handleWelcomeVerifyButtonInteraction(interaction);
 }
 
 async function handleTicketInteractions(client, interaction) {
