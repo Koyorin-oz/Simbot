@@ -263,8 +263,8 @@ async function completeWelcomeVerification(guild, userId) {
   }
 
   const ids = getWelcomeUnverifiedRoleIdsToStrip();
-  const rolesToCheck = [...ids];
-  if (v.roleVerifiedId) rolesToCheck.push(v.roleVerifiedId);
+  /** Ne bloque que sur les rôles actuellement configurés ; les IDs legacy absents restent ignorés. */
+  const rolesToCheck = [v.roleUnverifiedId, v.roleVerifiedId].filter(Boolean);
   const blockMsg = describeRoleManageBlock(guild, rolesToCheck);
   if (blockMsg) {
     return { ok: false, error: blockMsg };

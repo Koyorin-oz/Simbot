@@ -234,7 +234,7 @@ module.exports = {
     /** Role "nouveau arrivant" (attribue automatiquement a l'arrivee). */
     roleUnverifiedId: "1431475677789425754",
     /** Role membre verifie (serveur principal). */
-    roleVerifiedId: "973960786290544690"
+    roleVerifiedId: "736535821359906856"
   },
 
   /**
