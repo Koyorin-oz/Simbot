@@ -2,7 +2,7 @@ const config = require("../../config");
 const { addActivityGain, sanitizeEconomyIntRanges } = require("../../services/economyService");
 const { ensureLoanTables, processOverdueLoans } = require("../../services/loanService");
 const { syncRankRoleForMember } = require("../../services/rankRoleService");
-const { syncLevel3RoleForMember } = require("../../services/levelRoleService");
+const { syncLevel3RoleForMember, syncLevel3RoleForGuild } = require("../../services/levelRoleService");
 const { maybeAnnounceEconomyMilestones } = require("../../services/milestoneAnnounceService");
 const { syncWelcomeVerifyCategoryAccess } = require("../../services/welcomeVerifyService");
 const { updateMemberCounterChannel } = require("../../services/memberCounterService");
@@ -111,6 +111,7 @@ module.exports = {
     for (const guild of client.guilds.cache.values()) {
       await syncWelcomeVerifyCategoryAccess(guild).catch(() => null);
       await updateMemberCounterChannel(guild).catch(() => null);
+      await syncLevel3RoleForGuild(client, guild).catch(() => null);
     }
     await sanitizeEconomyIntRanges(client.prisma).catch(() => null);
     await ensureLoanTables(client.prisma).catch(() => null);
