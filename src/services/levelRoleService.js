@@ -1,11 +1,14 @@
 const { PermissionFlagsBits } = require("discord.js");
 
 const LEVEL_3_ROLE_ID = "1522984537997705236";
-const LEVEL_3_MIN_LEVEL = 3;
-const LEVEL_3_MEDIA_CHANNEL_IDS = ["735644918789439496", "1454870112141050099"];
+/** Nom legacy conservé pour éviter de retoucher tous les imports : ce palier est désormais niveau 5. */
+const LEVEL_3_MIN_LEVEL = 5;
+const LEVEL_3_MEDIA_CHANNEL_IDS = ["738884759287103610"];
+const ABONNE_MEDIA_ROLE_ID = "736535821359906856";
+const ABONNE_MEDIA_CHANNEL_IDS = ["735644918789439496", "1454870112141050099"];
 
 /**
- * Donne le rôle média niveau 3 dès que le membre atteint le seuil.
+ * Donne le rôle média du salon principal dès que le membre atteint le seuil.
  * Une fois obtenu, le rôle n’est **plus retiré** automatiquement (reset saison, baisse de LP, etc.).
  */
 async function syncLevel3RoleForMember(member, level) {
@@ -20,8 +23,9 @@ async function syncLevel3RoleForMember(member, level) {
 }
 
 /**
- * Les salons médias ciblés doivent refuser les pièces jointes à `@everyone`
- * et les autoriser au rôle niveau 3.
+ * Applique les permissions médias :
+ * - salon principal : rôle palier niveau 5
+ * - salons mèmes / humour noir : rôle abonné
  * @param {import("discord.js").Guild} guild
  */
 async function syncLevel3MediaPermissionsForGuild(guild) {
@@ -40,13 +44,46 @@ async function syncLevel3MediaPermissionsForGuild(guild) {
 
     // eslint-disable-next-line no-await-in-loop
     await channel.permissionOverwrites
-      .edit(guild.roles.everyone.id, { AttachFiles: false }, "Restriction medias : rôle niveau 3 requis")
+      .edit(guild.roles.everyone.id, { AttachFiles: false }, "Restriction medias : rôle niveau 5 requis")
       .catch(() => null);
 
     // eslint-disable-next-line no-await-in-loop
     await channel.permissionOverwrites
-      .edit(LEVEL_3_ROLE_ID, { AttachFiles: true }, "Acces medias niveau 3")
+      .edit(LEVEL_3_ROLE_ID, { AttachFiles: true }, "Acces medias niveau 5")
       .catch(() => null);
+
+    const staleAbonneOw = channel.permissionOverwrites.cache.get(ABONNE_MEDIA_ROLE_ID);
+    if (staleAbonneOw) {
+      // eslint-disable-next-line no-await-in-loop
+      await channel.permissionOverwrites
+        .delete(ABONNE_MEDIA_ROLE_ID, "Nettoyage overwrite abonne hors salons dédiés")
+        .catch(() => null);
+    }
+  }
+
+  for (const channelId of ABONNE_MEDIA_CHANNEL_IDS) {
+    // eslint-disable-next-line no-await-in-loop
+    const channel = guild.channels.cache.get(channelId) || (await guild.channels.fetch(channelId).catch(() => null));
+    if (!channel?.isTextBased?.() || !channel.permissionOverwrites) continue;
+    scanned += 1;
+
+    // eslint-disable-next-line no-await-in-loop
+    await channel.permissionOverwrites
+      .edit(guild.roles.everyone.id, { AttachFiles: false }, "Restriction medias : rôle abonné requis")
+      .catch(() => null);
+
+    // eslint-disable-next-line no-await-in-loop
+    await channel.permissionOverwrites
+      .edit(ABONNE_MEDIA_ROLE_ID, { AttachFiles: true }, "Acces medias rôle abonné")
+      .catch(() => null);
+
+    const staleLevelOw = channel.permissionOverwrites.cache.get(LEVEL_3_ROLE_ID);
+    if (staleLevelOw) {
+      // eslint-disable-next-line no-await-in-loop
+      await channel.permissionOverwrites
+        .delete(LEVEL_3_ROLE_ID, "Nettoyage overwrite niveau hors salon principal")
+        .catch(() => null);
+    }
   }
 
   return { ok: true, scanned };
@@ -88,6 +125,8 @@ module.exports = {
   LEVEL_3_ROLE_ID,
   LEVEL_3_MIN_LEVEL,
   LEVEL_3_MEDIA_CHANNEL_IDS,
+  ABONNE_MEDIA_ROLE_ID,
+  ABONNE_MEDIA_CHANNEL_IDS,
   syncLevel3RoleForMember,
   syncLevel3RoleForGuild,
   syncLevel3MediaPermissionsForGuild

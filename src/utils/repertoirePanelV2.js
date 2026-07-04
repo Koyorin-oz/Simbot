@@ -5,7 +5,13 @@ const {
   MessageFlags
 } = require("discord.js");
 const realServerIds = require("../data/realServerIds");
-const { LEVEL_3_ROLE_ID, LEVEL_3_MIN_LEVEL, LEVEL_3_MEDIA_CHANNEL_IDS } = require("../services/levelRoleService");
+const {
+  LEVEL_3_ROLE_ID,
+  LEVEL_3_MIN_LEVEL,
+  LEVEL_3_MEDIA_CHANNEL_IDS,
+  ABONNE_MEDIA_ROLE_ID,
+  ABONNE_MEDIA_CHANNEL_IDS
+} = require("../services/levelRoleService");
 
 const REPERTOIRE_ACCENT = 0xf1c40f;
 
@@ -191,10 +197,11 @@ function resolveRepertoireContext(guild) {
   const vip = resolveVipRole(guild, nitro?.id);
   const abonne = resolveAbonneRole(guild);
   const level3MediaRole = findRoleById(guild, LEVEL_3_ROLE_ID);
+  const abonneMediaRole = findRoleById(guild, ABONNE_MEDIA_ROLE_ID) || abonne;
   const { extra1, extra2 } = resolveExtraRoles(guild, nitro?.id, vip?.id, abonne?.id);
   const discussionId = resolveDiscussionChannelId(guild);
   const ticketId = resolveTicketChannelId(guild);
-  return { nitro, vip, extra1, extra2, abonne, level3MediaRole, discussionId, ticketId };
+  return { nitro, vip, extra1, extra2, abonne, abonneMediaRole, level3MediaRole, discussionId, ticketId };
 }
 
 function resolveDirectoryRoles(guild) {
@@ -315,10 +322,11 @@ function buildRoleDirectoryContainer(guild) {
 }
 
 function buildRepertoirePanelContent(ctx) {
-  const { nitro, vip, extra1, extra2, level3MediaRole, discussionId, ticketId } = ctx;
+  const { nitro, vip, extra1, extra2, abonneMediaRole, level3MediaRole, discussionId, ticketId } = ctx;
   const d = ch(discussionId);
   const t = ch(ticketId);
-  const mediaChannels = LEVEL_3_MEDIA_CHANNEL_IDS.map((id) => ch(id)).join(" et ");
+  const levelMediaChannels = LEVEL_3_MEDIA_CHANNEL_IDS.map((id) => ch(id)).join(" et ");
+  const abonneMediaChannels = ABONNE_MEDIA_CHANNEL_IDS.map((id) => ch(id)).join(" et ");
 
   const s1 = [
     `${roleMention(nitro)}`,
@@ -361,21 +369,29 @@ function buildRepertoirePanelContent(ctx) {
   ].join("\n");
 
   const s4 = [
+    `${roleMention(abonneMediaRole)}`,
+    "",
+    block([
+      `Envoyer des images et des vidéos dans ${abonneMediaChannels}`,
+      "Débloqué dès l'obtention du rôle abonné"
+    ])
+  ].join("\n");
+
+  const s5 = [
     `${roleMention(level3MediaRole)}`,
     "",
     block([
-      `Envoyer des images et des vidéos dans ${mediaChannels}`,
-      "Avoir la capacité d'allumer sa caméra, faire un stream et utiliser les soundboards",
+      `Envoyer des images et des vidéos dans ${levelMediaChannels}`,
       `Déblocable dès le niveau ${LEVEL_3_MIN_LEVEL}`
     ])
   ].join("\n");
 
-  return { s1, s2, s3, s4 };
+  return { s1, s2, s3, s4, s5 };
 }
 
 function buildPrivilegesContainer(guild) {
   const ctx = resolveRepertoireContext(guild);
-  const { s1, s2, s3, s4 } = buildRepertoirePanelContent(ctx);
+  const { s1, s2, s3, s4, s5 } = buildRepertoirePanelContent(ctx);
 
   const container = new ContainerBuilder()
     .setAccentColor(REPERTOIRE_ACCENT)
@@ -389,7 +405,9 @@ function buildPrivilegesContainer(guild) {
     .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(s3))
     .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent(s4));
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(s4))
+    .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(s5));
 
   const roleIds = [ctx.nitro, ctx.vip, ctx.extra1, ctx.extra2, ctx.abonne].filter(Boolean).map((r) => r.id);
 
