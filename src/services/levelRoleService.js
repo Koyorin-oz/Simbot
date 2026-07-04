@@ -1,8 +1,11 @@
-const LEVEL_3_ROLE_ID = "736535821359906856";
+const { PermissionFlagsBits } = require("discord.js");
+
+const LEVEL_3_ROLE_ID = "1522984537997705236";
 const LEVEL_3_MIN_LEVEL = 3;
+const LEVEL_3_MEDIA_CHANNEL_IDS = ["735644918789439496", "1454870112141050099"];
 
 /**
- * Donne le rôle niveau 3 dès que le membre atteint le seuil.
+ * Donne le rôle média niveau 3 dès que le membre atteint le seuil.
  * Une fois obtenu, le rôle n’est **plus retiré** automatiquement (reset saison, baisse de LP, etc.).
  */
 async function syncLevel3RoleForMember(member, level) {
@@ -14,6 +17,39 @@ async function syncLevel3RoleForMember(member, level) {
     return added ? { ok: true, action: "added" } : { ok: false, reason: "add_failed" };
   }
   return { ok: true, action: "noop" };
+}
+
+/**
+ * Les salons médias ciblés doivent refuser les pièces jointes à `@everyone`
+ * et les autoriser au rôle niveau 3.
+ * @param {import("discord.js").Guild} guild
+ */
+async function syncLevel3MediaPermissionsForGuild(guild) {
+  if (!guild) return { ok: false, reason: "invalid_guild", scanned: 0 };
+  const me = guild.members.me;
+  if (!me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
+    return { ok: false, reason: "no_manage_channels", scanned: 0 };
+  }
+
+  let scanned = 0;
+  for (const channelId of LEVEL_3_MEDIA_CHANNEL_IDS) {
+    // eslint-disable-next-line no-await-in-loop
+    const channel = guild.channels.cache.get(channelId) || (await guild.channels.fetch(channelId).catch(() => null));
+    if (!channel?.isTextBased?.() || !channel.permissionOverwrites) continue;
+    scanned += 1;
+
+    // eslint-disable-next-line no-await-in-loop
+    await channel.permissionOverwrites
+      .edit(guild.roles.everyone.id, { AttachFiles: false }, "Restriction medias : rôle niveau 3 requis")
+      .catch(() => null);
+
+    // eslint-disable-next-line no-await-in-loop
+    await channel.permissionOverwrites
+      .edit(LEVEL_3_ROLE_ID, { AttachFiles: true }, "Acces medias niveau 3")
+      .catch(() => null);
+  }
+
+  return { ok: true, scanned };
 }
 
 /**
@@ -51,6 +87,8 @@ async function syncLevel3RoleForGuild(client, guild) {
 module.exports = {
   LEVEL_3_ROLE_ID,
   LEVEL_3_MIN_LEVEL,
+  LEVEL_3_MEDIA_CHANNEL_IDS,
   syncLevel3RoleForMember,
-  syncLevel3RoleForGuild
+  syncLevel3RoleForGuild,
+  syncLevel3MediaPermissionsForGuild
 };

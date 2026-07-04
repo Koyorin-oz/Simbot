@@ -5,6 +5,7 @@ const {
   MessageFlags
 } = require("discord.js");
 const realServerIds = require("../data/realServerIds");
+const { LEVEL_3_ROLE_ID, LEVEL_3_MIN_LEVEL, LEVEL_3_MEDIA_CHANNEL_IDS } = require("../services/levelRoleService");
 
 const REPERTOIRE_ACCENT = 0xf1c40f;
 
@@ -189,10 +190,11 @@ function resolveRepertoireContext(guild) {
   const nitro = resolveNitroRole(guild);
   const vip = resolveVipRole(guild, nitro?.id);
   const abonne = resolveAbonneRole(guild);
+  const level3MediaRole = findRoleById(guild, LEVEL_3_ROLE_ID);
   const { extra1, extra2 } = resolveExtraRoles(guild, nitro?.id, vip?.id, abonne?.id);
   const discussionId = resolveDiscussionChannelId(guild);
   const ticketId = resolveTicketChannelId(guild);
-  return { nitro, vip, extra1, extra2, abonne, discussionId, ticketId };
+  return { nitro, vip, extra1, extra2, abonne, level3MediaRole, discussionId, ticketId };
 }
 
 function resolveDirectoryRoles(guild) {
@@ -313,9 +315,10 @@ function buildRoleDirectoryContainer(guild) {
 }
 
 function buildRepertoirePanelContent(ctx) {
-  const { nitro, vip, extra1, extra2, abonne, discussionId, ticketId } = ctx;
+  const { nitro, vip, extra1, extra2, level3MediaRole, discussionId, ticketId } = ctx;
   const d = ch(discussionId);
   const t = ch(ticketId);
+  const mediaChannels = LEVEL_3_MEDIA_CHANNEL_IDS.map((id) => ch(id)).join(" et ");
 
   const s1 = [
     `${roleMention(nitro)}`,
@@ -358,12 +361,12 @@ function buildRepertoirePanelContent(ctx) {
   ].join("\n");
 
   const s4 = [
-    `${roleMention(abonne)}`,
+    `${roleMention(level3MediaRole)}`,
     "",
     block([
-      `Envoyer des images et des vidéos dans l'ensemble du serveur, à l'exception de ${d}`,
+      `Envoyer des images et des vidéos dans ${mediaChannels}`,
       "Avoir la capacité d'allumer sa caméra, faire un stream et utiliser les soundboards",
-      "Déblocable dès le niveau 5"
+      `Déblocable dès le niveau ${LEVEL_3_MIN_LEVEL}`
     ])
   ].join("\n");
 
