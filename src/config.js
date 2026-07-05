@@ -233,8 +233,8 @@ module.exports = {
     commandsChannelId: ch.commandsChannelId || "735810600348680212",
     /** Role "nouveau arrivant" (attribue automatiquement a l'arrivee). */
     roleUnverifiedId: "1431475677789425754",
-    /** Role membre verifie (serveur principal). */
-    roleVerifiedId: "736535821359906856"
+    /** Role membre verifie — amis maux (serveur principal). */
+    roleVerifiedId: "973960786290544690"
   },
 
   /**

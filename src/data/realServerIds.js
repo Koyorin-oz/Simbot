@@ -10,7 +10,7 @@ module.exports = {
 
   roles: {
     unverifiedId: "1431475677789425754",
-    verifiedId: "736535821359906856",
+    verifiedId: "973960786290544690",
     suggestionsStaffRoleId: "740999121812586567",
     /** Acces salons tickets (staff + transcript / fermeture cote ticketService). */
     ticketsStaffRoleId: "740999121812586567",
