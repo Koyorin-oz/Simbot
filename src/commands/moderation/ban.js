@@ -30,6 +30,16 @@ module.exports = {
     .setDescription("Ban un membre")
     .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
     .addUserOption(o => o.setName("membre").setDescription("Membre a bannir").setRequired(true))
+    .addStringOption(o =>
+      o
+        .setName("annoncer")
+        .setDescription("Envoyer CHEH T'ES BAN dans le salon discussion ?")
+        .setRequired(true)
+        .addChoices(
+          { name: "Oui", value: "oui" },
+          { name: "Non", value: "non" }
+        )
+    )
     .addStringOption(o => o.setName("raison").setDescription("Raison").setRequired(false))
     .addStringOption(o =>
       o
@@ -39,16 +49,6 @@ module.exports = {
     )
     .addBooleanOption(o =>
       o.setName("anonyme").setDescription("Masquer le modérateur dans le MP à la cible").setRequired(false)
-    )
-    .addStringOption(o =>
-      o
-        .setName("annoncer")
-        .setDescription("Envoyer « CHEH T'ES BAN » dans le salon discussion ?")
-        .setRequired(true)
-        .addChoices(
-          { name: "Oui", value: "oui" },
-          { name: "Non", value: "non" }
-        )
     )
     .addStringOption(o =>
       o
