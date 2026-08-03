@@ -1,5 +1,6 @@
 const { sendModLog, baseEmbed } = require("../../services/modLogService");
 const { recordNativeBanFromAudit } = require("../../services/moderatorProfileService");
+const { consumePendingBanAnnounce } = require("../../services/banPublicAnnounceService");
 
 const BAN_CHEH_CHANNEL_ID = "738884759287103610";
 
@@ -15,6 +16,11 @@ module.exports = {
       ].join("\n")
     );
     await sendModLog(ban.guild, e);
+
+    // /bannir avec annoncer=Non → pas de message public. Sinon (Oui ou ban hors commande) → CHEH.
+    const pendingAnnounce = consumePendingBanAnnounce(ban.guild.id, ban.user.id);
+    const shouldAnnounce = pendingAnnounce !== false;
+    if (!shouldAnnounce) return;
 
     const channel =
       ban.guild.channels.cache.get(BAN_CHEH_CHANNEL_ID) ||
