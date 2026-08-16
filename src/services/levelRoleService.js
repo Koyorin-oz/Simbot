@@ -32,9 +32,25 @@ async function syncLevel3RoleForMember(member, level) {
 }
 
 /**
+ * Retire uniquement le bit AttachFiles d'une dérogation (jamais delete de tout l'overwrite).
+ * Sinon on casse ViewChannel / SendMessages déjà configurés à la main (ex. Abonné sur #discussion).
+ * @param {import("discord.js").GuildChannel} channel
+ * @param {string} roleId
+ * @param {string} reason
+ */
+async function clearAttachFilesOnly(channel, roleId, reason) {
+  const ow = channel.permissionOverwrites.cache.get(roleId);
+  if (!ow) return;
+  const bit = PermissionFlagsBits.AttachFiles;
+  if (!ow.allow.has(bit) && !ow.deny.has(bit)) return;
+  await channel.permissionOverwrites.edit(roleId, { AttachFiles: null }, reason).catch(() => null);
+}
+
+/**
  * Applique les permissions médias :
  * - salon principal : rôle palier niveau 5
  * - salons mèmes / humour noir : rôle abonné
+ * Ne supprime jamais une dérogation entière — uniquement AttachFiles.
  * @param {import("discord.js").Guild} guild
  */
 async function syncLevel3MediaPermissionsForGuild(guild) {
@@ -61,21 +77,18 @@ async function syncLevel3MediaPermissionsForGuild(guild) {
       .edit(LEVEL_3_ROLE_ID, { AttachFiles: true }, "Acces medias niveau 5")
       .catch(() => null);
 
-    const staleAbonneOw = channel.permissionOverwrites.cache.get(ABONNE_MEDIA_ROLE_ID);
-    if (staleAbonneOw) {
-      // eslint-disable-next-line no-await-in-loop
-      await channel.permissionOverwrites
-        .delete(ABONNE_MEDIA_ROLE_ID, "Nettoyage overwrite abonne hors salons dédiés")
-        .catch(() => null);
-    }
-
-    const staleLegacyOw = channel.permissionOverwrites.cache.get(LEGACY_MISTAKEN_LEVEL_ROLE_ID);
-    if (staleLegacyOw) {
-      // eslint-disable-next-line no-await-in-loop
-      await channel.permissionOverwrites
-        .delete(LEGACY_MISTAKEN_LEVEL_ROLE_ID, "Nettoyage rôle niveau média erroné")
-        .catch(() => null);
-    }
+    // eslint-disable-next-line no-await-in-loop
+    await clearAttachFilesOnly(
+      channel,
+      ABONNE_MEDIA_ROLE_ID,
+      "Clear AttachFiles abonne hors salons dédiés (dérogation conservée)"
+    );
+    // eslint-disable-next-line no-await-in-loop
+    await clearAttachFilesOnly(
+      channel,
+      LEGACY_MISTAKEN_LEVEL_ROLE_ID,
+      "Clear AttachFiles rôle niveau média erroné (dérogation conservée)"
+    );
   }
 
   for (const channelId of ABONNE_MEDIA_CHANNEL_IDS) {
@@ -94,21 +107,18 @@ async function syncLevel3MediaPermissionsForGuild(guild) {
       .edit(ABONNE_MEDIA_ROLE_ID, { AttachFiles: true }, "Acces medias rôle abonné")
       .catch(() => null);
 
-    const staleLevelOw = channel.permissionOverwrites.cache.get(LEVEL_3_ROLE_ID);
-    if (staleLevelOw) {
-      // eslint-disable-next-line no-await-in-loop
-      await channel.permissionOverwrites
-        .delete(LEVEL_3_ROLE_ID, "Nettoyage overwrite niveau hors salon principal")
-        .catch(() => null);
-    }
-
-    const staleLegacyOw = channel.permissionOverwrites.cache.get(LEGACY_MISTAKEN_LEVEL_ROLE_ID);
-    if (staleLegacyOw) {
-      // eslint-disable-next-line no-await-in-loop
-      await channel.permissionOverwrites
-        .delete(LEGACY_MISTAKEN_LEVEL_ROLE_ID, "Nettoyage rôle niveau média erroné")
-        .catch(() => null);
-    }
+    // eslint-disable-next-line no-await-in-loop
+    await clearAttachFilesOnly(
+      channel,
+      LEVEL_3_ROLE_ID,
+      "Clear AttachFiles niveau hors salon principal (dérogation conservée)"
+    );
+    // eslint-disable-next-line no-await-in-loop
+    await clearAttachFilesOnly(
+      channel,
+      LEGACY_MISTAKEN_LEVEL_ROLE_ID,
+      "Clear AttachFiles rôle niveau média erroné (dérogation conservée)"
+    );
   }
 
   return { ok: true, scanned };
