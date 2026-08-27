@@ -16,7 +16,6 @@ const {
   parseDeleteMessageSecondsFromChoice
 } = require("../../utils/moderationMessagePurge");
 const { parseBanDurationMs } = require("../../utils/banDurationMs");
-const { setPendingBanAnnounce } = require("../../services/banPublicAnnounceService");
 
 function humanizeBanMs(durationMs) {
   if (durationMs >= 86400000) return `${Math.round(durationMs / 86400000)} jour(s)`;
@@ -30,16 +29,6 @@ module.exports = {
     .setDescription("Ban un membre")
     .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
     .addUserOption(o => o.setName("membre").setDescription("Membre a bannir").setRequired(true))
-    .addStringOption(o =>
-      o
-        .setName("annoncer")
-        .setDescription("Envoyer CHEH T'ES BAN dans le salon discussion ?")
-        .setRequired(true)
-        .addChoices(
-          { name: "Oui", value: "oui" },
-          { name: "Non", value: "non" }
-        )
-    )
     .addStringOption(o => o.setName("raison").setDescription("Raison").setRequired(false))
     .addStringOption(o =>
       o
@@ -62,7 +51,6 @@ module.exports = {
     const reason = interaction.options.getString("raison") || "Aucune raison";
     const dureeRaw = interaction.options.getString("duree");
     const anonyme = interaction.options.getBoolean("anonyme") === true;
-    const announcePublic = interaction.options.getString("annoncer", true) === "oui";
     const deleteSeconds = parseDeleteMessageSecondsFromChoice(interaction.options.getString("supprimer_messages"));
     const byDm = moderatorLabelForDm(interaction, anonyme);
 
@@ -133,7 +121,6 @@ module.exports = {
 
     const banOpts = { reason };
     if (deleteSeconds > 0) banOpts.deleteMessageSeconds = deleteSeconds;
-    setPendingBanAnnounce(interaction.guildId, user.id, announcePublic);
     await interaction.guild.members.ban(user.id, banOpts);
     const endsAt = durationMs ? new Date(Date.now() + durationMs) : null;
     await client.prisma.punishment.create({
