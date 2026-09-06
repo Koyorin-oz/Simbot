@@ -55,12 +55,13 @@ const BUILTIN_GEMINI_MODEL_FALLBACKS = [
   "gemini-3.6-flash",
   "gemini-3.5-flash",
   "gemini-flash-latest",
-  "gemini-3-flash-preview"
+  "gemini-3-flash-preview",
+  "gemini-3.5-flash-lite"
 ];
-/** Repli Groq « gpt » : autre gpt-oss puis Qwen. */
-const BUILTIN_GROQ_GPT_FALLBACKS = ["openai/gpt-oss-120b", "qwen/qwen3.6-27b"];
-/** Repli Groq « llama » (nom legacy) : Qwen puis gpt-oss-20b. */
-const BUILTIN_GROQ_LLAMA_FALLBACKS = ["qwen/qwen3.6-27b", "openai/gpt-oss-20b"];
+/** Repli Groq « gpt » : autre gpt-oss puis Qwen (dernier recours, plus cher). */
+const BUILTIN_GROQ_GPT_FALLBACKS = ["openai/gpt-oss-120b", "qwen/qwen3.6-27b", "qwen/qwen3.8-27b"];
+/** Repli Groq « llama » (nom legacy) : Qwen puis retour 20b. */
+const BUILTIN_GROQ_LLAMA_FALLBACKS = ["qwen/qwen3.6-27b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"];
 /** @deprecated — préfère BUILTIN_GROQ_LLAMA_FALLBACKS */
 const BUILTIN_MODEL_FALLBACKS = BUILTIN_GROQ_LLAMA_FALLBACKS;
 
