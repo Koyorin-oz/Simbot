@@ -5,11 +5,11 @@ const { expandFrenchChatAbbreviations, buildAbbreviationPromptAppendix } = requi
 
 /**
  * LLM ping IA / dinguerie — chaîne de repli (ordre par défaut) :
- * 1. **Google Gemini** (`GEMINI_API_KEY`)
- * 2. **Groq GPT** (`GROQ_API_KEY` + `GROQ_GPT_MODEL`, ex. `openai/gpt-oss-20b`) — pas OpenAI.com
- * 3. **Groq (repli)** (même clé Groq, ex. `openai/gpt-oss-120b` / `qwen/qwen3.6-27b`)
+ * 1. **Groq GPT** (`GROQ_API_KEY` + `GROQ_GPT_MODEL`, ex. `openai/gpt-oss-20b`) — pas OpenAI.com
+ * 2. **Groq (repli)** (même clé Groq, ex. `openai/gpt-oss-120b` / `qwen/qwen3.6-27b`)
  *
- * Ordre : `IA_PROVIDER_ORDER=gemini,groq-gpt,groq-llama`
+ * Ordre : `IA_PROVIDER_ORDER=groq-gpt,groq-llama`
+ * Gemini reste utilisable si tu le remets dans `IA_PROVIDER_ORDER`, mais n’est plus dans la chaîne par défaut.
  *
  * Note (août 2026) : Groq a retiré `llama-3.3-70b-versatile` et `llama-3.1-8b-instant`.
  * Les anciens IDs dans `.env` sont remappés automatiquement.
@@ -155,7 +155,7 @@ function getGroqApiKey() {
 }
 
 function getProviderChain() {
-  const raw = String(process.env.IA_PROVIDER_ORDER || "gemini,groq-gpt,groq-llama").trim();
+  const raw = String(process.env.IA_PROVIDER_ORDER || "groq-gpt,groq-llama").trim();
   const parsed = [...new Set(raw.split(/[,;\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean))];
   return normalizeProviderChain(parsed);
 }
@@ -176,7 +176,7 @@ function normalizeProviderChain(chain) {
     }
     if (!out.includes(p)) out.push(p);
   }
-  return out.length ? out : ["gemini", "groq-gpt", "groq-llama"];
+  return out.length ? out : ["groq-gpt", "groq-llama"];
 }
 
 function getGroqGptModelsToTry() {
@@ -444,7 +444,7 @@ function formatProviderFailureLine(f) {
     return `• **${label}** — modèle \`gpt-oss\` bloqué sur ton compte Groq → mets \`GROQ_GPT_MODEL=qwen/qwen3.6-27b\` dans \`.env\`.`;
   }
   if (f.provider === "openai" && msg.includes("absente")) {
-    return `• **OpenAI.com** — ignoré (pas de clé). Utilise \`IA_PROVIDER_ORDER=gemini,groq-gpt,groq-llama\`.`;
+    return `• **OpenAI.com** — ignoré (pas de clé). Utilise \`IA_PROVIDER_ORDER=groq-gpt,groq-llama\`.`;
   }
   const st = f.status ? ` HTTP ${f.status}` : "";
   const detail = f.message ? ` — ${String(f.message).slice(0, 120)}` : "";
@@ -456,27 +456,32 @@ function formatAllProvidersFailureMessage(failures) {
   return (
     "**IA indisponible** pour l’instant.\n" +
     (lines.length ? `${lines.join("\n")}\n\n` : "") +
-    "**Pebble `.env` :** `GEMINI_API_KEY` + `GROQ_API_KEY` (nouvelle clé `gsk_…`) + `GROQ_GPT_MODEL=openai/gpt-oss-20b` + `IA_PROVIDER_ORDER=gemini,groq-gpt,groq-llama` → restart."
+    "**Pebble `.env` :** `GROQ_API_KEY` (clé `gsk_…`) + `GROQ_GPT_MODEL=openai/gpt-oss-20b` + `IA_PROVIDER_ORDER=groq-gpt,groq-llama` → restart."
   );
 }
 
 function logIaProvidersStartupStatus() {
   const gem = Boolean(getGeminiApiKey());
   const groq = Boolean(getGroqApiKey());
-  const chain = getProviderChain().join(" → ");
-  const gemModels = getGeminiModelsToTry().join(", ");
+  const chainList = getProviderChain();
+  const chain = chainList.join(" → ");
+  const usesGemini = chainList.includes("gemini");
   const groqGpt = getGroqGptModelsToTry().join(", ");
   const groqLlama = getGroqLlamaModelsToTry().join(", ");
   const { log } = require("../utils/botLogger");
-  log("info", "IA", `Chaîne ${chain} | Gemini : ${gem ? "clé présente" : "absente"} | Groq : ${groq ? "clé présente" : "absente"}`);
-  log("info", "IA", `Modèles Gemini : ${gemModels}`);
+  log("info", "IA", `Chaîne ${chain} | Groq : ${groq ? "clé présente" : "absente"}${usesGemini ? ` | Gemini : ${gem ? "clé présente" : "absente"}` : ""}`);
+  if (usesGemini) {
+    log("info", "IA", `Modèles Gemini : ${getGeminiModelsToTry().join(", ")}`);
+  }
   log("info", "IA", `Modèles Groq-gpt : ${groqGpt} | Groq-repli : ${groqLlama}`);
-  if (!gem && !groq) {
+  if (!groq && !usesGemini) {
+    log("warn", "IA", "GROQ_API_KEY absente — les pings @SimBot renverront une erreur.");
+  } else if (!groq && usesGemini && !gem) {
     log("warn", "IA", "Aucune clé IA — les pings @SimBot renverront une erreur.");
-  } else if (!gem) {
-    log("warn", "IA", "GEMINI_API_KEY absente — uniquement le repli Groq sera utilisé.");
   } else if (!groq) {
-    log("info", "IA", "GROQ_API_KEY absente — repli Groq désactivé (Gemini seul).");
+    log("warn", "IA", "GROQ_API_KEY absente — Gemini seul (si présent dans la chaîne).");
+  } else if (usesGemini && !gem) {
+    log("info", "IA", "GEMINI_API_KEY absente — chaîne Groq uniquement (OK).");
   }
 }
 
