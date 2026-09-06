@@ -7,13 +7,16 @@ const { expandFrenchChatAbbreviations, buildAbbreviationPromptAppendix } = requi
  * LLM ping IA / dinguerie — chaîne de repli (ordre par défaut) :
  * 1. **Google Gemini** (`GEMINI_API_KEY`)
  * 2. **Groq GPT** (`GROQ_API_KEY` + `GROQ_GPT_MODEL`, ex. `openai/gpt-oss-20b`) — pas OpenAI.com
- * 3. **Groq Llama** (même clé Groq, ex. `llama-3.3-70b-versatile`)
+ * 3. **Groq (repli)** (même clé Groq, ex. `openai/gpt-oss-120b` / `qwen/qwen3.6-27b`)
  *
  * Ordre : `IA_PROVIDER_ORDER=gemini,groq-gpt,groq-llama`
+ *
+ * Note (août 2026) : Groq a retiré `llama-3.3-70b-versatile` et `llama-3.1-8b-instant`.
+ * Les anciens IDs dans `.env` sont remappés automatiquement.
  */
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 const DEFAULT_GROQ_GPT_MODEL = "openai/gpt-oss-20b";
-const DEFAULT_GROQ_LLAMA_MODEL = "llama-3.3-70b-versatile";
+const DEFAULT_GROQ_LLAMA_MODEL = "openai/gpt-oss-120b";
 /** @deprecated alias — préfère DEFAULT_GROQ_GPT_MODEL */
 const DEFAULT_GROQ_MODEL = DEFAULT_GROQ_GPT_MODEL;
 
@@ -27,12 +30,53 @@ const GEMINI_BASE_URL = String(process.env.GEMINI_API_BASE || "https://generativ
 const OPENAI_BASE_URL = String(process.env.OPENAI_API_BASE || "https://api.openai.com/v1").replace(/\/$/, "");
 const GROQ_BASE_URL = String(process.env.GROQ_API_BASE || "https://api.groq.com/openai/v1").replace(/\/$/, "");
 
-const BUILTIN_GEMINI_MODEL_FALLBACKS = ["gemini-2.0-flash", "gemini-2.0-flash-lite"];
-/** Si gpt-oss bloqué chez Groq → repli Llama dans le même tier. */
-const BUILTIN_GROQ_GPT_FALLBACKS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
-const BUILTIN_GROQ_LLAMA_FALLBACKS = ["llama-3.1-8b-instant"];
+/** Anciens modèles Groq retirés (free/dev) → remplacements officiels. */
+const DEPRECATED_GROQ_MODEL_MAP = {
+  "llama-3.3-70b-versatile": "openai/gpt-oss-120b",
+  "llama-3.1-8b-instant": "openai/gpt-oss-20b",
+  "llama3-70b-8192": "openai/gpt-oss-120b",
+  "llama3-8b-8192": "openai/gpt-oss-20b",
+  "mixtral-8x7b-32768": "qwen/qwen3.6-27b",
+  "gemma2-9b-it": "openai/gpt-oss-20b",
+  "qwen/qwen3-32b": "openai/gpt-oss-120b",
+  "meta-llama/llama-4-scout-17b-16e-instruct": "openai/gpt-oss-120b"
+};
+
+/** Anciens Gemini flash retirés → IDs encore listés / stables. */
+const DEPRECATED_GEMINI_MODEL_MAP = {
+  "gemini-2.0-flash": "gemini-3.6-flash",
+  "gemini-2.0-flash-lite": "gemini-3.5-flash-lite",
+  "gemini-2.5-flash-lite": "gemini-3.5-flash-lite",
+  "gemini-1.5-flash": "gemini-2.5-flash",
+  "gemini-1.5-pro": "gemini-2.5-pro"
+};
+
+const BUILTIN_GEMINI_MODEL_FALLBACKS = [
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-flash-latest",
+  "gemini-3-flash-preview"
+];
+/** Repli Groq « gpt » : autre gpt-oss puis Qwen. */
+const BUILTIN_GROQ_GPT_FALLBACKS = ["openai/gpt-oss-120b", "qwen/qwen3.6-27b"];
+/** Repli Groq « llama » (nom legacy) : Qwen puis gpt-oss-20b. */
+const BUILTIN_GROQ_LLAMA_FALLBACKS = ["qwen/qwen3.6-27b", "openai/gpt-oss-20b"];
 /** @deprecated — préfère BUILTIN_GROQ_LLAMA_FALLBACKS */
 const BUILTIN_MODEL_FALLBACKS = BUILTIN_GROQ_LLAMA_FALLBACKS;
+
+function remapDeprecatedModelId(modelName, map) {
+  const raw = String(modelName || "").trim();
+  if (!raw) return raw;
+  return map[raw] || map[raw.toLowerCase()] || raw;
+}
+
+function remapDeprecatedGroqModel(modelName) {
+  return remapDeprecatedModelId(modelName, DEPRECATED_GROQ_MODEL_MAP);
+}
+
+function remapDeprecatedGeminiModel(modelName) {
+  return remapDeprecatedModelId(modelName, DEPRECATED_GEMINI_MODEL_MAP);
+}
 
 /** Fichier canonique pour coller le prompt Groq (sans `/ia-prompt`). */
 const DEFAULT_GROQ_PROMPT_FILE = path.join(__dirname, "..", "data", "groqSystemPrompt.txt");
@@ -135,49 +179,52 @@ function normalizeProviderChain(chain) {
 }
 
 function getGroqGptModelsToTry() {
-  const envGpt = String(process.env.GROQ_GPT_MODEL || "").trim();
-  const legacy = String(process.env.GROQ_MODEL || process.env.GROK_MODEL || "").trim();
+  const envGpt = remapDeprecatedGroqModel(String(process.env.GROQ_GPT_MODEL || "").trim());
+  const legacy = remapDeprecatedGroqModel(String(process.env.GROQ_MODEL || process.env.GROK_MODEL || "").trim());
   const legacyIsGpt = legacy.includes("gpt-oss") || legacy.startsWith("openai/") || legacy.startsWith("qwen/");
-  const primary = envGpt || (legacyIsGpt ? legacy : "") || DEFAULT_GROQ_GPT_MODEL;
+  const primary = remapDeprecatedGroqModel(envGpt || (legacyIsGpt ? legacy : "") || DEFAULT_GROQ_GPT_MODEL);
   let extra = [];
   if (process.env.GROQ_GPT_MODEL_FALLBACKS !== undefined) {
     extra = String(process.env.GROQ_GPT_MODEL_FALLBACKS || "")
       .split(/[,;\s]+/)
-      .map((s) => s.trim())
+      .map((s) => remapDeprecatedGroqModel(s.trim()))
       .filter(Boolean);
   } else {
     extra = BUILTIN_GROQ_GPT_FALLBACKS.filter((m) => m !== primary);
   }
-  return [...new Set([primary, ...extra])];
+  return [...new Set([primary, ...extra].map(remapDeprecatedGroqModel).filter(Boolean))];
 }
 
 function getGroqLlamaModelsToTry() {
-  const primary =
-    String(process.env.GROQ_LLAMA_MODEL || DEFAULT_GROQ_LLAMA_MODEL).trim() || DEFAULT_GROQ_LLAMA_MODEL;
+  const primary = remapDeprecatedGroqModel(
+    String(process.env.GROQ_LLAMA_MODEL || DEFAULT_GROQ_LLAMA_MODEL).trim() || DEFAULT_GROQ_LLAMA_MODEL
+  );
   let extra = [];
   if (process.env.GROQ_LLAMA_MODEL_FALLBACKS !== undefined || process.env.GROQ_MODEL_FALLBACKS !== undefined) {
     extra = String(process.env.GROQ_LLAMA_MODEL_FALLBACKS || process.env.GROQ_MODEL_FALLBACKS || "")
       .split(/[,;\s]+/)
-      .map((s) => s.trim())
+      .map((s) => remapDeprecatedGroqModel(s.trim()))
       .filter(Boolean);
   } else {
     extra = BUILTIN_GROQ_LLAMA_FALLBACKS.filter((m) => m !== primary);
   }
-  return [...new Set([primary, ...extra])];
+  return [...new Set([primary, ...extra].map(remapDeprecatedGroqModel).filter(Boolean))];
 }
 
 function getGeminiModelsToTry() {
-  const primary = String(process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL).trim() || DEFAULT_GEMINI_MODEL;
+  const primary = remapDeprecatedGeminiModel(
+    String(process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL).trim() || DEFAULT_GEMINI_MODEL
+  );
   let extra = [];
   if (process.env.GEMINI_MODEL_FALLBACKS !== undefined) {
     extra = String(process.env.GEMINI_MODEL_FALLBACKS || "")
       .split(/[,;\s]+/)
-      .map((s) => s.trim())
+      .map((s) => remapDeprecatedGeminiModel(s.trim()))
       .filter(Boolean);
   } else {
     extra = BUILTIN_GEMINI_MODEL_FALLBACKS.filter((m) => m !== primary);
   }
-  return [...new Set([primary, ...extra])];
+  return [...new Set([primary, ...extra].map(remapDeprecatedGeminiModel).filter(Boolean))];
 }
 
 function getOpenAiModelsToTry() {
@@ -297,7 +344,7 @@ function resetSystemPromptFileToFactory() {
   writeSystemPromptFile(FACTORY_SYSTEM_PROMPT);
 }
 
-/** Dernier recours Llama sur Groq (qualité moindre que GPT-OSS). */
+/** Union des modèles Groq (legacy provider `groq`). */
 function getModelsToTry() {
   return [...new Set([...getGroqGptModelsToTry(), ...getGroqLlamaModelsToTry()])];
 }
@@ -387,8 +434,13 @@ function formatProviderFailureLine(f) {
   if (f.provider === "gemini" && (f.status === 429 || msg.includes("quota"))) {
     return `• **${label}** — quota free épuisé (429). Attends le reset ou active la facturation Google AI.`;
   }
+  if (f.status === 401 || msg.includes("invalid api key") || msg.includes("invalid_api_key")) {
+    return `• **${label}** — clé API invalide. Crée une nouvelle clé sur ${
+      f.provider === "gemini" ? "https://aistudio.google.com/apikey" : "https://console.groq.com/keys"
+    } et mets-la dans le \`.env\` Pebble.`;
+  }
   if (msg.includes("blocked at the organization") || msg.includes("gpt-oss")) {
-    return `• **${label}** — modèle \`gpt-oss\` bloqué sur ton compte Groq → mets \`GROQ_GPT_MODEL=llama-3.3-70b-versatile\` dans \`.env\`.`;
+    return `• **${label}** — modèle \`gpt-oss\` bloqué sur ton compte Groq → mets \`GROQ_GPT_MODEL=qwen/qwen3.6-27b\` dans \`.env\`.`;
   }
   if (f.provider === "openai" && msg.includes("absente")) {
     return `• **OpenAI.com** — ignoré (pas de clé). Utilise \`IA_PROVIDER_ORDER=gemini,groq-gpt,groq-llama\`.`;
@@ -403,7 +455,7 @@ function formatAllProvidersFailureMessage(failures) {
   return (
     "**IA indisponible** pour l’instant.\n" +
     (lines.length ? `${lines.join("\n")}\n\n` : "") +
-    "**Pebble `.env` :** `GEMINI_API_KEY` + `GROQ_GPT_MODEL=llama-3.3-70b-versatile` + `IA_PROVIDER_ORDER=gemini,groq-gpt,groq-llama` → restart."
+    "**Pebble `.env` :** `GEMINI_API_KEY` + `GROQ_API_KEY` (nouvelle clé `gsk_…`) + `GROQ_GPT_MODEL=openai/gpt-oss-20b` + `IA_PROVIDER_ORDER=gemini,groq-gpt,groq-llama` → restart."
   );
 }
 
@@ -411,8 +463,13 @@ function logIaProvidersStartupStatus() {
   const gem = Boolean(getGeminiApiKey());
   const groq = Boolean(getGroqApiKey());
   const chain = getProviderChain().join(" → ");
+  const gemModels = getGeminiModelsToTry().join(", ");
+  const groqGpt = getGroqGptModelsToTry().join(", ");
+  const groqLlama = getGroqLlamaModelsToTry().join(", ");
   const { log } = require("../utils/botLogger");
   log("info", "IA", `Chaîne ${chain} | Gemini : ${gem ? "clé présente" : "absente"} | Groq : ${groq ? "clé présente" : "absente"}`);
+  log("info", "IA", `Modèles Gemini : ${gemModels}`);
+  log("info", "IA", `Modèles Groq-gpt : ${groqGpt} | Groq-repli : ${groqLlama}`);
   if (!gem && !groq) {
     log("warn", "IA", "Aucune clé IA — les pings @SimBot renverront une erreur.");
   } else if (!gem) {
@@ -523,7 +580,7 @@ function buildGroqReasoningParams(modelName, opts = {}) {
     out.include_reasoning = String(process.env.GROQ_INCLUDE_REASONING || "").trim() === "1";
     return out;
   }
-  if (m.startsWith("qwen/qwen3-32b")) {
+  if (m.startsWith("qwen/qwen3")) {
     const eff = String(process.env.GROQ_QWEN_REASONING_EFFORT || "default").trim().toLowerCase();
     out.reasoning_effort = eff === "none" ? "none" : "default";
     const fmt = String(process.env.GROQ_QWEN_REASONING_FORMAT || "hidden").trim().toLowerCase();
@@ -600,7 +657,7 @@ async function geminiGenerateContent(modelName, system, user, maxTokens, opts = 
       maxOutputTokens: cap
     }
   };
-  if (opts.pingMode && /gemini-2\.5/i.test(model)) {
+  if (opts.pingMode && /gemini-(2\.5|3)/i.test(model)) {
     body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
   }
 

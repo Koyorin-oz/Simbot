@@ -80,12 +80,22 @@ function logBanner(lines) {
  */
 function logApiError(tag, err, opts = {}) {
   const max = Math.max(80, Number(opts.maxDetailChars) || 400);
-  const msg =
+  let msg =
     err instanceof Error
       ? err.message
       : typeof err === "string"
         ? err
         : err?.message || String(err);
+  if (err && typeof err === "object" && Array.isArray(err.failures) && err.failures.length) {
+    const details = err.failures
+      .map((f) => {
+        const st = f.status != null ? `HTTP ${f.status}` : "?";
+        const m = String(f.message || "").slice(0, 160);
+        return `${f.provider || "?"} ${st}${m ? ` ${m}` : ""}`;
+      })
+      .join(" | ");
+    msg = `${msg} :: ${details}`;
+  }
   log("error", tag, String(msg || "Erreur inconnue").slice(0, max));
 }
 
