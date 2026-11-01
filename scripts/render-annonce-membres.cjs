@@ -16,22 +16,22 @@ const ids = roles.rankRolePingIdsByKey || {};
 
 const RANK_ORDER = [
   ["hyene_1", "Hyène I", 0],
-  ["hyene_2", "Hyène II", 450],
-  ["hyene_3", "Hyène III", 900],
-  ["pumba_1", "Pumba I", 1500],
-  ["pumba_2", "Pumba II", 2300],
-  ["pumba_3", "Pumba III", 3200],
-  ["shenzi_1", "Shenzi I", 4300],
-  ["shenzi_2", "Shenzi II", 5600],
-  ["shenzi_3", "Shenzi III", 7100],
-  ["timon_1", "Timon I", 9000],
-  ["timon_2", "Timon II", 11200],
-  ["timon_3", "Timon III", 13800],
-  ["nala_1", "Nala I", 17000],
-  ["nala_2", "Nala II", 20800],
-  ["nala_3", "Nala III", 25400],
-  ["scar", "Sarabi", 40000],
-  ["cardinal", "Cardinal", 100000]
+  ["hyene_2", "Hyène II", 500],
+  ["hyene_3", "Hyène III", 1000],
+  ["pumba_1", "Pumba I", 3000],
+  ["pumba_2", "Pumba II", 4000],
+  ["pumba_3", "Pumba III", 5000],
+  ["shenzi_1", "Shenzi I", 9000],
+  ["shenzi_2", "Shenzi II", 11000],
+  ["shenzi_3", "Shenzi III", 13000],
+  ["timon_1", "Timon I", 21000],
+  ["timon_2", "Timon II", 25000],
+  ["timon_3", "Timon III", 29000],
+  ["nala_1", "Nala I", 45000],
+  ["nala_2", "Nala II", 53000],
+  ["nala_3", "Nala III", 61000],
+  ["scar", "Sarabi", 100000],
+  ["cardinal", "Cardinal", 200000]
 ];
 
 const mentions = RANK_ORDER.map(([key]) => {

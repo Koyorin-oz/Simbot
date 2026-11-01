@@ -55,22 +55,22 @@ Voici **tout ce qu’il faut savoir** sur l’économie du serveur et les **comm
 Ton **rang** = le palier le plus haut dont tu as au moins les SP minimum. À chaque ligne : **mention du rôle Discord** (couleur de rang) + palier + SP requis.
 
 • <@&REPLACE_hyene_1> — **Hyène I** — **0** SP
-• <@&REPLACE_hyene_2> — **Hyène II** — **450** SP
-• <@&REPLACE_hyene_3> — **Hyène III** — **900** SP
-• <@&REPLACE_pumba_1> — **Pumba I** — **1 500** SP
-• <@&REPLACE_pumba_2> — **Pumba II** — **2 300** SP
-• <@&REPLACE_pumba_3> — **Pumba III** — **3 200** SP
-• <@&REPLACE_shenzi_1> — **Shenzi I** — **4 300** SP
-• <@&REPLACE_shenzi_2> — **Shenzi II** — **5 600** SP
-• <@&REPLACE_shenzi_3> — **Shenzi III** — **7 100** SP
-• <@&REPLACE_timon_1> — **Timon I** — **9 000** SP
-• <@&REPLACE_timon_2> — **Timon II** — **11 200** SP
-• <@&REPLACE_timon_3> — **Timon III** — **13 800** SP
-• <@&REPLACE_nala_1> — **Nala I** — **17 000** SP
-• <@&REPLACE_nala_2> — **Nala II** — **20 800** SP
-• <@&REPLACE_nala_3> — **Nala III** — **25 400** SP
-• <@&REPLACE_scar> — **Sarabi** — **40 000** SP
-• <@&REPLACE_cardinal> — **Cardinal** — **100 000** SP
+• <@&REPLACE_hyene_2> — **Hyène II** — **500** SP
+• <@&REPLACE_hyene_3> — **Hyène III** — **1 000** SP
+• <@&REPLACE_pumba_1> — **Pumba I** — **3 000** SP
+• <@&REPLACE_pumba_2> — **Pumba II** — **4 000** SP
+• <@&REPLACE_pumba_3> — **Pumba III** — **5 000** SP
+• <@&REPLACE_shenzi_1> — **Shenzi I** — **9 000** SP
+• <@&REPLACE_shenzi_2> — **Shenzi II** — **11 000** SP
+• <@&REPLACE_shenzi_3> — **Shenzi III** — **13 000** SP
+• <@&REPLACE_timon_1> — **Timon I** — **21 000** SP
+• <@&REPLACE_timon_2> — **Timon II** — **25 000** SP
+• <@&REPLACE_timon_3> — **Timon III** — **29 000** SP
+• <@&REPLACE_nala_1> — **Nala I** — **45 000** SP
+• <@&REPLACE_nala_2> — **Nala II** — **53 000** SP
+• <@&REPLACE_nala_3> — **Nala III** — **61 000** SP
+• <@&REPLACE_scar> — **Sarabi** — **100 000** SP
+• <@&REPLACE_cardinal> — **Cardinal** — **200 000** SP
 
 Le bot attribue **automatiquement** le rôle qui correspond à tes SP (un seul rôle de rang à la fois).
 
@@ -78,7 +78,7 @@ Le bot attribue **automatiquement** le rôle qui correspond à tes SP (un seul r
 4) PERTE DE SP SI TU ES INACTIF (À PARTIR DE NALA)
 ────────────────────────────────────────
 
-À partir du rang **Nala** (17 000 SP et plus), si tu ne gagnes **ni message ni vocal** pendant longtemps, le bot peut **retirer des SP** par “ticks” d’inactivité.
+À partir du rang **Nala** (45 000 SP et plus), si tu ne gagnes **ni message ni vocal** pendant longtemps, le bot peut **retirer des SP** par “ticks” d’inactivité.
 
 • **24 h** sans activité économique → la dégradation peut commencer.
 • Entre deux pertes : au moins **6 h**.
@@ -100,7 +100,7 @@ Dès que tu reparles / reviens en vocal avec gain, ça **réinitialise** la logi
 6) BOUTIQUE & INVENTAIRE
 ────────────────────────────────────────
 
-**/boutique** — panneau interactif : achat avec tes **SC** (prix indicatifs config actuelle : café ~5 500 SC, tirelire ~700 000 SC, couronne & déblocage rôle perso ~1 400 000 SC ; les pourcentages de boost sont affichés en jeu).
+**/boutique** — panneau interactif : achat avec tes **SC** (prix indicatifs config actuelle : café ~5 500 SC, tirelire ~400 000 SC, couronne ~600 000 SC, déblocage rôle perso ~1 400 000 SC ; les pourcentages de boost sont affichés en jeu).
 
 **/inventaire** — voir tes objets (café, rôle perso en attente, etc.) et les utiliser selon les boutons proposés.
 

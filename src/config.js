@@ -115,12 +115,10 @@ module.exports = {
   },
   shop: {
     /**
-     * Prix ajustés (hors café) : objectif ~2 mois pour la Tirelire (item permanent le moins cher)
-     * avec un membre moyennement actif (commandes + quelques messages), ~1 mois pour un membre très actif.
-     * Rapports Couronne : Tirelire : Rôle perso inchangés (2 : 1 : 2).
+     * Prix saison : Tirelire 400k, Couronne 600k, Rôle perso 1,4M.
      */
-    crownPrice: 1400000,
-    piggyPrice: 700000,
+    crownPrice: 600000,
+    piggyPrice: 400000,
     coffeePrice: 5500,
     customRolePrice: 1400000,
     crownBoostPct: 30,
@@ -151,22 +149,22 @@ module.exports = {
     },
     thresholds: [
       { key: "hyene_1", name: "Hyene I", minSp: 0 },
-      { key: "hyene_2", name: "Hyene II", minSp: 450 },
-      { key: "hyene_3", name: "Hyene III", minSp: 900 },
-      { key: "pumba_1", name: "Pumba I", minSp: 1500 },
-      { key: "pumba_2", name: "Pumba II", minSp: 2300 },
-      { key: "pumba_3", name: "Pumba III", minSp: 3200 },
-      { key: "shenzi_1", name: "Shenzi I", minSp: 4300 },
-      { key: "shenzi_2", name: "Shenzi II", minSp: 5600 },
-      { key: "shenzi_3", name: "Shenzi III", minSp: 7100 },
-      { key: "timon_1", name: "Timon I", minSp: 9000 },
-      { key: "timon_2", name: "Timon II", minSp: 11200 },
-      { key: "timon_3", name: "Timon III", minSp: 13800 },
-      { key: "nala_1", name: "Nala I", minSp: 17000 },
-      { key: "nala_2", name: "Nala II", minSp: 20800 },
-      { key: "nala_3", name: "Nala III", minSp: 25400 },
-      { key: "scar", name: "Sarabi", minSp: 40000 },
-      { key: "cardinal", name: "Cardinal", minSp: 100000 }
+      { key: "hyene_2", name: "Hyene II", minSp: 500 },
+      { key: "hyene_3", name: "Hyene III", minSp: 1000 },
+      { key: "pumba_1", name: "Pumba I", minSp: 3000 },
+      { key: "pumba_2", name: "Pumba II", minSp: 4000 },
+      { key: "pumba_3", name: "Pumba III", minSp: 5000 },
+      { key: "shenzi_1", name: "Shenzi I", minSp: 9000 },
+      { key: "shenzi_2", name: "Shenzi II", minSp: 11000 },
+      { key: "shenzi_3", name: "Shenzi III", minSp: 13000 },
+      { key: "timon_1", name: "Timon I", minSp: 21000 },
+      { key: "timon_2", name: "Timon II", minSp: 25000 },
+      { key: "timon_3", name: "Timon III", minSp: 29000 },
+      { key: "nala_1", name: "Nala I", minSp: 45000 },
+      { key: "nala_2", name: "Nala II", minSp: 53000 },
+      { key: "nala_3", name: "Nala III", minSp: 61000 },
+      { key: "scar", name: "Sarabi", minSp: 100000 },
+      { key: "cardinal", name: "Cardinal", minSp: 200000 }
     ]
   },
   welcome: {
