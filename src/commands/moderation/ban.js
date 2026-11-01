@@ -158,9 +158,6 @@ module.exports = {
             : `${Math.max(1, Math.round(deleteSeconds / 60))} derniere(s) minute(s)`;
       dmLine += ` Historique des messages supprime (${win}, API Discord).`;
     }
-    dmLine += announcePublic
-      ? " Annonce publique (discussion) : **Oui**."
-      : " Annonce publique (discussion) : **Non** (discret).";
     await interaction.editReply({
       content: dmLine,
       embeds: [embed]

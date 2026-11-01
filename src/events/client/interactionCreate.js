@@ -158,6 +158,20 @@ async function safeInteractionComponentUpdate(interaction, payload) {
   }
 }
 
+/** Reply éphémère sans faire tomber le process (token expiré / salon disparu). */
+async function safeEphemeralReply(interaction, content) {
+  try {
+    if (interaction.deferred || interaction.replied) {
+      await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    await interaction.reply({ content, flags: MessageFlags.Ephemeral });
+  } catch (err) {
+    if (err?.code === 10062 || err?.code === 10003) return;
+    logApiError("INTERACTION", err, { maxDetailChars: 400 });
+  }
+}
+
 function normalizeDeployPanel(input) {
   const value = String(input || "")
     .trim()
@@ -762,19 +776,16 @@ module.exports = {
 
     if (interaction.isButton() && interaction.customId.startsWith("shop_")) {
       if (isEconomyPaused()) {
-        await interaction.reply({
-          content: "⏸️ L'economie est en pause. Boutique temporairement indisponible.",
-          flags: MessageFlags.Ephemeral
-        });
+        await safeEphemeralReply(interaction, "⏸️ L'economie est en pause. Boutique temporairement indisponible.");
         return;
       }
       if (interaction.customId === "shop_refresh") {
-        await interaction.reply({ content: "Selection mise a jour. Rechoisis une categorie.", flags: MessageFlags.Ephemeral });
+        await safeEphemeralReply(interaction, "Selection mise a jour. Rechoisis une categorie.");
         return;
       }
       const selected = client.shopSessions.get(interaction.user.id);
       if (!selected) {
-        await interaction.reply({ content: "Selectionne d'abord une categorie dans le menu.", flags: MessageFlags.Ephemeral });
+        await safeEphemeralReply(interaction, "Selectionne d'abord une categorie dans le menu.");
         return;
       }
       await purchaseItem(client, interaction, selected);
@@ -1495,7 +1506,7 @@ async function purchaseItem(client, interaction, item) {
   if (item === "custom_role") price = config.shop.customRolePrice;
 
   if (user.simbaCoins < price) {
-    await interaction.reply({ content: "Solde insuffisant.", flags: MessageFlags.Ephemeral });
+    await safeEphemeralReply(interaction, "Solde insuffisant.");
     return;
   }
 
@@ -1503,14 +1514,17 @@ async function purchaseItem(client, interaction, item) {
   let msg = "Achat valide.";
   if (item === "crown") {
     data.crownOwned = true;
-    msg = "Couronne achetee: boost permanent LP/SP +15%.";
+    msg = `Couronne achetee: boost permanent LP/SP +${config.shop.crownBoostPct}%.`;
   } else if (item === "piggy") {
     data.piggyOwned = true;
     msg = `Tirelire achetee: boost permanent SC +${config.shop.piggyBoostPct}%.`;
   } else if (item === "custom_role") {
     const inv = await getInventorySnapshot(client.prisma, interaction.guildId, interaction.user.id);
     if (user.customRoleUnlocked || user.customRoleId || (inv.customRoleCount || 0) > 0) {
-      await interaction.reply({ content: "Role perso limite a 1 par personne (deja debloque / en inventaire / cree).", flags: MessageFlags.Ephemeral });
+      await safeEphemeralReply(
+        interaction,
+        "Role perso limite a 1 par personne (deja debloque / en inventaire / cree)."
+      );
       return;
     }
     msg = "Item Role Perso achete: ajoute dans ton inventaire. Utilise `/inventaire` puis **Utiliser role perso**.";
@@ -1529,10 +1543,10 @@ async function purchaseItem(client, interaction, item) {
   if ((item === "crown" || item === "piggy" || item === "custom_role") && process.env.ECONOMY_LOG_CHANNEL_ID) {
     const log = await interaction.guild.channels.fetch(process.env.ECONOMY_LOG_CHANNEL_ID).catch(() => null);
     if (log?.isTextBased()) {
-      await log.send(`Achat premium: ${interaction.user.tag} -> ${item} (${formatSC(price)} SC). Nouveau solde: ${formatSC(updated.simbaCoins)} SC`);
+      await log.send(`Achat premium: ${interaction.user.tag} -> ${item} (${formatSC(price)} SC). Nouveau solde: ${formatSC(updated.simbaCoins)} SC`).catch(() => null);
     }
   }
-  await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+  await safeEphemeralReply(interaction, msg);
 }
 
 function normalizeHex(input) {
